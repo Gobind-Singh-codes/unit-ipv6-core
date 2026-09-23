@@ -1,0 +1,42 @@
+{
+  "chain": [
+    "F",
+    "R"
+  ],
+  "delivery_proof": "auto",
+  "deviation": "DUT errored a valid packet instead of processing it (ICMPv6 Type 4 Code 0 ptr 66)",
+  "dst": "fd:33:33:33::1",
+  "dut_packets": [
+    "Ether / IPv6 / ICMPv6ParamProblem / IPerror6 / IPv6ExtHdrRouting / ICMPv6 Echo Request (id: 0xb467 seq: 0x7d8c)"
+  ],
+  "er_requirement": "IPv6 nodes must accept and attempt to process extension headers in any order and occurring any number of times in the same packet.",
+  "er_table": "Table-3",
+  "icmp_id": 46183,
+  "icmp_seq": 32140,
+  "interface": "host0",
+  "liveness_src": "IP-01-116",
+  "observability": {
+    "minimum": "blackbox"
+  },
+  "observed": [
+    {
+      "detail": "Ether / IPv6 / ICMPv6ParamProblem / IPerror6 / IPv6ExtHdrRouting / ICMPv6 Echo Request (id: 0xb467 seq: 0x7d8c)",
+      "kind": "DIRECTLY_OBSERVED"
+    }
+  ],
+  "pcap": "pcap/IP-01-118.pcap",
+  "rfc": "8200",
+  "rfc_section": "4.1",
+  "role": "HOST",
+  "src": "fd:33:33:33:7446:4ff:fe34:5702",
+  "stimulus": "Ether / IPv6 / IPv6ExtHdrFragment / IPv6ExtHdrRouting / ICMPv6 Echo Request (id: 0xb467 seq: 0x7d8c)",
+  "test_id": "IP-01-118",
+  "tx_seen_on_wire": true,
+  "tx_time": 1790186367.9433048,
+  "verdict": "FAIL",
+  "versions": {
+    "platform": "Linux-7.1.3-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "scapy": "2.6.1"
+  }
+}

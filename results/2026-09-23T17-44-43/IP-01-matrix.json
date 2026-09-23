@@ -1,0 +1,388 @@
+[
+  {
+    "id": "IP-01-001",
+    "chain": [
+      "H"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-002",
+    "chain": [
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-003",
+    "chain": [
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-004",
+    "chain": [
+      "F"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-101",
+    "chain": [
+      "H",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-102",
+    "chain": [
+      "H",
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-103",
+    "chain": [
+      "H",
+      "F"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-106",
+    "chain": [
+      "D",
+      "H"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-107",
+    "chain": [
+      "D",
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-108",
+    "chain": [
+      "D",
+      "F"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-111",
+    "chain": [
+      "R",
+      "H"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-112",
+    "chain": [
+      "R",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-113",
+    "chain": [
+      "R",
+      "F"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-116",
+    "chain": [
+      "F",
+      "H"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-117",
+    "chain": [
+      "F",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-118",
+    "chain": [
+      "F",
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-201",
+    "chain": [
+      "H",
+      "H"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-202",
+    "chain": [
+      "H",
+      "H",
+      "H"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-203",
+    "chain": [
+      "D",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-204",
+    "chain": [
+      "D",
+      "D",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-205",
+    "chain": [
+      "R",
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-206",
+    "chain": [
+      "R",
+      "R",
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-207",
+    "chain": [
+      "F",
+      "F"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-208",
+    "chain": [
+      "F",
+      "F",
+      "F"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-301",
+    "chain": [
+      "H",
+      "H",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-302",
+    "chain": [
+      "H",
+      "D",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-303",
+    "chain": [
+      "D",
+      "H",
+      "H"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-304",
+    "chain": [
+      "D",
+      "D",
+      "H"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-305",
+    "chain": [
+      "H",
+      "R",
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-306",
+    "chain": [
+      "R",
+      "H",
+      "H"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-307",
+    "chain": [
+      "D",
+      "R",
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-308",
+    "chain": [
+      "R",
+      "D",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-309",
+    "chain": [
+      "H",
+      "F",
+      "F"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-310",
+    "chain": [
+      "F",
+      "H",
+      "H"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-311",
+    "chain": [
+      "D",
+      "F",
+      "F"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-312",
+    "chain": [
+      "F",
+      "D",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-400",
+    "chain": [
+      "H",
+      "D",
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-401",
+    "chain": [
+      "H",
+      "D",
+      "F"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-402",
+    "chain": [
+      "D",
+      "R",
+      "F"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-403",
+    "chain": [
+      "R",
+      "F",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-404",
+    "chain": [
+      "H",
+      "R",
+      "D"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-405",
+    "chain": [
+      "D",
+      "H",
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-406",
+    "chain": [
+      "R",
+      "D",
+      "H"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-407",
+    "chain": [
+      "F",
+      "D",
+      "R"
+    ],
+    "verdict": "INCONCLUSIVE"
+  },
+  {
+    "id": "IP-01-005",
+    "chain": [
+      "A"
+    ],
+    "verdict": "NOT_APPLICABLE"
+  },
+  {
+    "id": "IP-01-006",
+    "chain": [
+      "E"
+    ],
+    "verdict": "NOT_APPLICABLE"
+  }
+]

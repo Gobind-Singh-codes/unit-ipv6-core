@@ -1,0 +1,53 @@
+{
+  "counts": {
+    "INCONCLUSIVE": 4,
+    "NOT_APPLICABLE": 2,
+    "PASS": 3
+  },
+  "dut": "fd:33:33:33::1",
+  "interface": "host0",
+  "rfc": "4443",
+  "tests": [
+    {
+      "id": "ICMP-01",
+      "verdict": "PASS"
+    },
+    {
+      "id": "ICMP-02a",
+      "verdict": "PASS"
+    },
+    {
+      "id": "ICMP-02b",
+      "verdict": "NOT_APPLICABLE"
+    },
+    {
+      "id": "ICMP-02c",
+      "verdict": "INCONCLUSIVE"
+    },
+    {
+      "id": "ICMP-03",
+      "verdict": "PASS"
+    },
+    {
+      "id": "ICMP-04",
+      "verdict": "INCONCLUSIVE"
+    },
+    {
+      "id": "ICMP-05a",
+      "verdict": "INCONCLUSIVE"
+    },
+    {
+      "id": "ICMP-05b",
+      "verdict": "INCONCLUSIVE"
+    },
+    {
+      "id": "ICMP-05c",
+      "verdict": "NOT_APPLICABLE"
+    }
+  ],
+  "versions": {
+    "platform": "Linux-7.1.3-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "scapy": "2.6.1"
+  }
+}

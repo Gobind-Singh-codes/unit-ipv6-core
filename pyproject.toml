@@ -1,0 +1,20 @@
+[project]
+name = "unit-rfcv6"
+version = "0.1.0"
+description = "IPv6 Core RFC conformance test suite"
+requires-python = ">=3.11"
+dependencies = [
+  "scapy==2.6.1",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+pythonpath = ["."]
+markers = [
+  "integration: live network tests (require explicit invocation, may transmit)",
+]

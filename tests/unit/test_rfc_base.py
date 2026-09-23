@@ -1,0 +1,98 @@
+"""Phase 2-5 base-build unit tests. Zero network I/O (builders + dry-runs only)."""
+from common import packets as P
+
+
+def test_multicast_helpers():
+    assert P.is_multicast("ff02::1")
+    assert not P.is_multicast("2001:db8::1")
+    assert P.is_unspecified("::")
+    assert P.eth_dst_for_ipv6("ff02::1") == "33:33:00:00:00:01"
+    assert P.eth_dst_for_ipv6("2001:db8::1") is None
+    assert P.valid_nd_hlim(255) and not P.valid_nd_hlim(254)
+
+
+def test_nd_builders_hlim():
+    for kind, kw in (("RS", {}), ("RA", {}), ("NS", {"tgt": "2001:db8::1"}),
+                     ("NA", {"tgt": "2001:db8::1"})):
+        for hlim in (255, 254):
+            pkt = P.build_nd(kind, "2001:db8::2", "ff02::1" if kind in ("RS", "RA") else "2001:db8::1",
+                             hlim=hlim, **kw)
+            from scapy.layers.inet6 import IPv6
+            assert pkt[IPv6].hlim == hlim
+
+
+def test_slaac04_builders():
+    r = P.build_ns_reserved("2001:db8::2", "2001:db8::1", "2001:db8::1")
+    from scapy.layers.inet6 import ICMPv6ND_NS
+    assert r[ICMPv6ND_NS].res != 0
+    u = P.build_ns_unknown_opt("2001:db8::2", "2001:db8::1", "2001:db8::1", 30)
+    raw = bytes(u)
+    assert bytes([30]) in raw
+
+
+def test_unknown_informational():
+    pkt = P.build_unknown_informational("2001:db8::2", "2001:db8::1", 200)
+    from scapy.layers.inet6 import IPv6
+    assert pkt[IPv6].nh == 58
+    assert bytes(pkt[IPv6].payload)[:1] == bytes([200])
+
+
+def test_ptb_builder_and_floor():
+    q = P.build_echo("2001:db8::2", "2001:db8::1", 1, 1)
+    ptb = P.build_ptb("2001:db8::99", "2001:db8::2", 1000, q)
+    from scapy.layers.inet6 import ICMPv6PacketTooBig
+    assert ptb[ICMPv6PacketTooBig].mtu == 1000
+    assert not P.pmtu_floor_ok(1000) and P.pmtu_floor_ok(1280)
+
+
+def test_udp_trigger_builder():
+    pkt = P.build_udp_trigger("2001:db8::2", "2001:db8::1", 12345)
+    from scapy.layers.inet import UDP
+    from scapy.layers.inet6 import IPv6
+    assert pkt[IPv6].dst == "2001:db8::1"
+    assert pkt[UDP].dport == 59999 and pkt[UDP].sport == 12345
+
+
+def test_echo_pad_len():
+    small = P.build_echo("2001:db8::2", "2001:db8::1", 1, 1)
+    big = P.build_echo("2001:db8::2", "2001:db8::1", 1, 1, pad_len=1993)
+    assert len(bytes(big)) - len(bytes(small)) == 1993
+
+
+def test_frag_info_helpers():
+    from scapy.layers.inet6 import IPv6, IPv6ExtHdrFragment
+    from scapy.packet import Raw
+    first = IPv6(src="::1", dst="::2") / IPv6ExtHdrFragment(offset=0, m=1, id=7) / Raw(load=b"Y" * 1448)
+    assert P.frag_info(first) == (0, 1, 1448)
+    last = IPv6(src="::1", dst="::2") / IPv6ExtHdrFragment(offset=181, m=0, id=7) / Raw(load=b"Z" * 100)
+    assert P.frag_info(last) == (181 * 8, 0, 100)
+    plain = P.build_echo("2001:db8::2", "2001:db8::1", 1, 1)
+    assert P.frag_info(plain) is None
+    assert P.first_frag_payloads([first, last, plain]) == [1448]
+    assert P.implied_wire_mtu(1448) == 1496
+    assert P.MIN_FLOOR_FIRST_FRAG == 1232
+
+
+def _load(name):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, f"/root/unit-RFCv6/{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_dry_runs_never_transmit(capsys):
+    m3 = _load("RFC-4443-conformance")
+    m61 = _load("RFC-4861-conformance")
+    m62 = _load("RFC-4862-conformance")
+    m01 = _load("RFC-8201-conformance")
+    assert m3.main(["--interface", "lo", "--source", "2001:db8::2", "--target", "2001:db8::1",
+                    "--dry-run"]) == 0
+    assert m61.main(["--interface", "lo", "--source", "2001:db8::2", "--target", "2001:db8::1",
+                     "--dry-run"]) == 0
+    assert m62.main(["--interface", "lo", "--source", "2001:db8::2", "--target", "2001:db8::1",
+                     "--dry-run"]) == 0
+    assert m01.main(["--interface", "lo", "--source", "2001:db8::2", "--target", "2001:db8::1",
+                     "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "SKIPPED" in out
