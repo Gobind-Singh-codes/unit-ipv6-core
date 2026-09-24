@@ -124,6 +124,11 @@ def dad_log_shows(log_out: str, tentative: str, solicited: str) -> tuple[bool, s
     return False, ""
 
 
+def l2_target(dst: str, via: str | None = None) -> str:
+    """Address to resolve for L2: the next hop when given, else the dst (pure)."""
+    return via or dst
+
+
 def dut_dad_probes(packets, anycast_target: str, own_srcs) -> list:
     """Packets where the DUT itself performs DAD on the anycast target (pure).
 
@@ -155,7 +160,10 @@ def dry_run(args) -> int:
         if tid == "SLAAC-01":
             print(f"Test: SLAAC-01  tentative={args.tentative_addr or '(unset)'} dad-delay={args.dad_delay}s")
             print("  Stimulus: datagrams to all-nodes + solicited-node of tentative during delay")
-            print("  Expected: DUT receives/processes them (needs --dad-proof or INCONCLUSIVE)")
+            print("  Expected: DUT receives/processes them (tentative in DUT log -> PASS)")
+            if args.whitebox:
+                print(f"  White-box read via [{args.whitebox_tunnel or '(unset)'}]: "
+                      f"'{args.dad_remote_cmd or '(unset: --dad-remote-cmd)'}'")
         elif tid == "SLAAC-02":
             print(f"Test: SLAAC-02  anycast-target={args.anycast_target or '(unset)'}")
             print("  Stimulus: control NS for DUT unicast (expects NA), then 3 DAD-style NS "
@@ -197,19 +205,23 @@ def run_live(args) -> int:
     lladdr = args.lladdr or src_mac
     results: list[TestResult] = []
 
-    def l2(dst: str) -> str:
-        m = P.eth_dst_for_ipv6(dst)
+    def l2(dst: str, via: str | None = None) -> str:
+        # via: next-hop for L2 when the IPv6 dst isn't directly resolvable
+        # (tentative addresses answer no solicitations by definition). No silent
+        # fallback: unknown next hops still raise.
+        target = l2_target(dst, via)
+        m = P.eth_dst_for_ipv6(target)
         if m:
             return m
-        out = subprocess.run(["ip", "-6", "neigh", "show", "dev", args.interface, "to", dst],
+        out = subprocess.run(["ip", "-6", "neigh", "show", "dev", args.interface, "to", target],
                              text=True, capture_output=True, check=True)
         f = out.stdout.split()
         if "lladdr" not in f:
-            raise RuntimeError(f"no neighbor entry for {dst}: {out.stdout.strip()}")
+            raise RuntimeError(f"no neighbor entry for {target}: {out.stdout.strip()}")
         return f[f.index("lladdr") + 1]
 
-    def tx_rx(l3, bpf: str, timeout: float):
-        pkt = Ether(src=src_mac, dst=l2(l3.dst)) / l3
+    def tx_rx(l3, bpf: str, timeout: float, via: str | None = None):
+        pkt = Ether(src=src_mac, dst=l2(l3.dst, via)) / l3
         sniffer = AsyncSniffer(iface=args.interface, filter=f"ip6 {bpf}", store=True)
         sniffer.start()
         time.sleep(0.1)
@@ -240,7 +252,8 @@ def run_live(args) -> int:
     for tid in selected(args):
         if tid == "SLAAC-01":
             rec = base_rec(tid, tid, {"tentative": args.tentative_addr,
-                                      "dad_delay": args.dad_delay, "dad_proof": args.dad_proof})
+                                      "dad_delay": args.dad_delay, "dad_proof": args.dad_proof,
+                                      "l2_next_hop": {"tentative": args.target}})
             if not args.tentative_addr:
                 r = TestResult(test_id=tid, verdict="NOT_APPLICABLE",
                                deviation="no --tentative-addr configured")
@@ -251,7 +264,8 @@ def run_live(args) -> int:
                     from scapy.layers.inet6 import IPv6
                     iid, iseq = P.derive_ids(args.seed, tid)
                     s1, g1 = tx_rx(P.build_echo(args.source, "ff02::1", iid, iseq), "", 1.0)
-                    s2, g2 = tx_rx(P.build_echo(args.source, args.tentative_addr, iid, iseq + 1), "", 1.0)
+                    s2, g2 = tx_rx(P.build_echo(args.source, args.tentative_addr, iid, iseq + 1), "", 1.0,
+                    via=args.target)  # tentative answers no solicitations: L2 to the DUT
                     got = list(g1) + list(g2)
                 except Exception as e:
                     r = TestResult(test_id=tid, verdict="ERROR", deviation=str(e))
@@ -277,7 +291,8 @@ def run_live(args) -> int:
                 try:
                     iid, iseq = P.derive_ids(args.seed, tid)
                     s1, g1 = tx_rx(P.build_echo(args.source, "ff02::1", iid, iseq), "", 1.0)
-                    s2, g2 = tx_rx(P.build_echo(args.source, args.tentative_addr, iid, iseq + 1), "", 1.0)
+                    s2, g2 = tx_rx(P.build_echo(args.source, args.tentative_addr, iid, iseq + 1), "", 1.0,
+                    via=args.target)  # tentative answers no solicitations: L2 to the DUT
                     got = list(g1) + list(g2)
                     chk = (WB.run_check(args.whitebox_tunnel, args.dad_remote_cmd,
                                         args.whitebox_timeout) if args.whitebox else None)

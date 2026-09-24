@@ -139,6 +139,21 @@ def test_solicited_node_and_dad_matcher():
     assert found == [dut]
 
 
+def test_l2_target_selection():
+    def mod():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "RFC4862b", "/root/unit-RFCv6/RFC-4862-conformance.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    m = mod()
+    assert m.l2_target("2001:db8::1") == "2001:db8::1"
+    assert m.l2_target("ff02::1") == "ff02::1"
+    assert m.l2_target("fd:33:33:33::dead", "fd:33:33:33::1") == "fd:33:33:33::1"
+
+
 def test_dad_log_shows():
     def mod():
         import importlib.util
