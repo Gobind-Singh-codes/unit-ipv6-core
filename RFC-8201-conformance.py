@@ -15,6 +15,7 @@ import time
 from common.config import build_parser, validate_addrs
 from common import evidence as ev
 from common import packets as P
+from common import whitebox as WB
 from common.verdict import Observation, TestResult
 
 RFC = "8201"
@@ -34,8 +35,21 @@ def extra_args(p):
                    help="injected PTB MTU (must be <1280 to exercise the requirement)")
     p.add_argument("--ptb-src", default="",
                    help="PTB source (default: --target's pretended router; recorded explicitly)")
-    p.add_argument("--observed-pmtu", default="",
-                   help="white-box cache readout supplied by operator, e.g. 'pmtu=1280'; empty=unexposed")
+    p.add_argument("--whitebox", action="store_true",
+                   help="enable test-scoped white-box observation of the DUT PMTU cache")
+    p.add_argument("--whitebox-tunnel", default="",
+                   help="transport prefix, e.g. 'ssh -i lab.key admin@fd:33:33:33::1'")
+    p.add_argument("--whitebox-timeout", type=float, default=10.0,
+                   help="seconds allowed per remote check")
+    p.add_argument("--pmtu-remote-cmd", default="",
+                   help="remote command printing the path PMTU (first integer in stdout is used). "
+                        "Optional: defaults to a python3 socket query against --source. "
+                        "Example override: --pmtu-remote-cmd 'show ipv6 path-mtu fd:33:33:33:7446:4ff:fe34:5702'")
+    p.add_argument("--pmtu-require-cache", action="store_true",
+                   help="fail closed unless the readout comes from a real route cache entry: "
+                        "the remote output must contain the word 'cache' "
+                        "(e.g. use 'ip -6 route show cache ...'); interface-MTU fallbacks "
+                        "become ERROR instead of PASS")
     p.add_argument("--post-probes", type=int, default=3,
                    help="post-PTB echo probes to size")
     p.add_argument("--probe-size", type=int, default=2000,
@@ -44,12 +58,26 @@ def extra_args(p):
     return p
 
 
+def resolve_remote(args) -> tuple[str, str]:
+    """Effective (remote_cmd, source) where source is explicit|default. Pure."""
+    if getattr(args, "pmtu_remote_cmd", ""):
+        return args.pmtu_remote_cmd, "explicit"
+    return WB.default_pmtu_remote_cmd(args.source), "default"
+
+
 def dry_run(args) -> int:
     print(f"RFC 8201 dry-run  src={args.source} dst={args.target}")
     print(f"Test: PMTU-01  baseline {args.probe_size}B echo exchange (record reply fragment sizes)")
     print("  Probes larger than the interface MTU are fragmented in userspace before sending")
     print(f"  -> inject PTB src={args.ptb_src or '(path router)'} mtu={args.ptb_mtu} quoting last DUT packet")
     print(f"  -> {args.post_probes} post probes, record fragment sizes")
+    if args.whitebox:
+        cmd, src = resolve_remote(args)
+        print(f"  White-box: PRE/POST '{cmd}' via [{args.whitebox_tunnel}] (cmd: {src})")
+        if args.pmtu_require_cache:
+            print("  White-box strictness: require route cache entry (fallbacks are ERROR)")
+    else:
+        print("  White-box: off (fragment-inference verdict; add --whitebox for cache readout)")
     print("  Expected: PMTU never reduced below 1280; PTB itself discarded as estimate")
     print("  Transmission: SKIPPED")
     if args.ptb_mtu >= 1280:
@@ -95,6 +123,10 @@ def run_live(args) -> int:
     if args.ptb_mtu >= 1280:
         print("ERROR: --ptb-mtu must be < 1280 to exercise PMTU-01")
         return 2
+    wb_err = WB.validate(args, remote_required=False)
+    if wb_err:
+        print(f"ERROR: misconfigured white-box:\n{wb_err}")
+        return 2
     run_dir = ev.new_run_dir(args.output)
     try:
         src_mac = _iface_mac(args.interface)
@@ -120,7 +152,10 @@ def run_live(args) -> int:
            "observability": {"minimum": OBS_MINIMUM},
            "src": args.source, "dst": args.target, "versions": ev.versions(),
            "interface": args.interface, "ptb_mtu": args.ptb_mtu, "ptb_src": ptb_src,
-           "observed_pmtu": args.observed_pmtu, "iface_mtu": iface_mtu}
+           "whitebox": {"enabled": args.whitebox, "tunnel": args.whitebox_tunnel,
+                        "remote_cmd": resolve_remote(args)[0] if args.whitebox else "",
+                        "remote_cmd_source": resolve_remote(args)[1] if args.whitebox else ""} if args.whitebox else {"enabled": False},
+           "iface_mtu": iface_mtu}
 
     def tx_echo(iid: int, iseq: int, timeout: float):
         pad = max(0, args.probe_size - len(b"RFC8200"))
@@ -138,6 +173,23 @@ def run_live(args) -> int:
 
     def echo_replies(got):
         return [p for p in got if p.haslayer(ICMPv6EchoReply)]
+
+    wb_pre = wb_post = None
+    wb_remote = ""
+    if args.whitebox:
+        wb_remote = rec["whitebox"]["remote_cmd"]
+        pre_check = WB.run_check(args.whitebox_tunnel, wb_remote,
+                                 args.whitebox_timeout)
+        wb_pre = WB.parse_first_int(pre_check["stdout"])
+        rec["whitebox"]["pre"] = {"value": wb_pre, "check": pre_check,
+                                  "cache_hit": WB.cache_hit(pre_check)}
+        if wb_pre is None:
+            r = TestResult(test_id="PMTU-01", verdict="ERROR",
+                           deviation="white-box PRE readout unreadable; see whitebox.pre.check")
+            rec.update(verdict=r.verdict, deviation=r.deviation)
+            ev.write_test_json(run_dir, "PMTU-01", rec)
+            print(f"\nRFC: {RFC}\n  PMTU-01    ERROR\nEvidence:\n  {run_dir}")
+            return 1
 
     try:
         # 1. baseline with fragmentation-forcing probes
@@ -192,22 +244,22 @@ def run_live(args) -> int:
         ev.write_test_json(run_dir, "PMTU-01", rec)
 
         sub_floor = [x for x in post_frags if x < P.MIN_FLOOR_FIRST_FRAG]
-        if args.observed_pmtu:
-            try:
-                val = int(args.observed_pmtu.split("=")[1])
-            except Exception:
-                val = -1
-            rec["parsed_observed_pmtu"] = val
-            if val != -1 and val < 1280:
-                r = TestResult(test_id="PMTU-01", verdict="FAIL",
-                               deviation=f"DUT PMTU readout {val} < 1280 after PTB mtu={args.ptb_mtu}",
-                               observed=[Observation("DIRECTLY_OBSERVED", args.observed_pmtu)])
-            elif val != -1:
-                r = TestResult(test_id="PMTU-01", verdict="PASS",
-                               observed=[Observation("DIRECTLY_OBSERVED", args.observed_pmtu)])
-            else:
-                r = TestResult(test_id="PMTU-01", verdict="ERROR",
-                               deviation=f"unparseable --observed-pmtu: {args.observed_pmtu}")
+        if args.whitebox:
+            post_check = WB.run_check(args.whitebox_tunnel, wb_remote,
+                                      args.whitebox_timeout)
+            wb_post = WB.parse_first_int(post_check["stdout"])
+            rec["whitebox"]["post"] = {"value": wb_post, "check": post_check,
+                                       "cache_hit": WB.cache_hit(post_check)}
+            verdict, detail, deviation = WB.decide_pmtu(
+                wb_pre, wb_post,
+                rec["whitebox"]["pre"]["cache_hit"],
+                rec["whitebox"]["post"]["cache_hit"],
+                args.pmtu_require_cache)
+            obs = [Observation("DIRECTLY_OBSERVED", detail)] if detail else []
+            if verdict == "ERROR":
+                obs = [Observation("UNKNOWN", "readout missing")]
+            r = TestResult(test_id="PMTU-01", verdict=verdict, observed=obs,
+                           deviation=deviation)
         elif sub_floor and base_frags and min(base_frags) >= P.MIN_FLOOR_FIRST_FRAG:
             implied = P.implied_wire_mtu(min(sub_floor))
             r = TestResult(test_id="PMTU-01", verdict="FAIL",
