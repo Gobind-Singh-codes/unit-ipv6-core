@@ -1,0 +1,24 @@
+{
+  "deviation": "",
+  "dst": "fd:33:33:33::1",
+  "er_requirement": "If the message is a response to a message sent to one of the node's unicast addresses, the Source Address of the reply MUST be that same address.",
+  "er_table": "Table-7",
+  "icmp_id": 1898,
+  "icmp_seq": 62396,
+  "interface": "host0",
+  "observability": {
+    "minimum": "blackbox"
+  },
+  "pcap": "pcap/ICMP-01.pcap",
+  "rfc": "4443",
+  "rfc_section": "2.2(a)",
+  "role": "HOST",
+  "src": "fd:33:33:33:7446:4ff:fe34:5702",
+  "test_id": "ICMP-01",
+  "verdict": "PASS",
+  "versions": {
+    "platform": "Linux-7.1.3-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "scapy": "2.6.1"
+  }
+}

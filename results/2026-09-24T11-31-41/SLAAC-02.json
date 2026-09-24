@@ -1,0 +1,24 @@
+{
+  "anycast_proof": "cat /proc/net/anycast6 | grep -i end1_33",
+  "anycast_target": "fd:33:33:33::",
+  "deviation": "anycast proven but DAD-absence observation is a kink pass (base records only)",
+  "dst": "fd:33:33:33::1",
+  "er_requirement": "Duplicate Address Detection MUST NOT be performed on anycast addresses.",
+  "er_table": "Table-5",
+  "interface": "host0",
+  "observability": {
+    "minimum": "blackbox"
+  },
+  "pcap": "pcap/SLAAC-02.pcap",
+  "rfc": "4862",
+  "rfc_section": "5.4",
+  "role": "HOST",
+  "src": "fd:33:33:33:7446:4ff:fe34:5702",
+  "test_id": "SLAAC-02",
+  "verdict": "INCONCLUSIVE",
+  "versions": {
+    "platform": "Linux-7.1.3-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "scapy": "2.6.1"
+  }
+}
