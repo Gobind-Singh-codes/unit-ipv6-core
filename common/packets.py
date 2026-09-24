@@ -7,6 +7,16 @@ import itertools
 SYMBOLS = ("H", "D", "R", "F", "A", "E")
 SECURITY_SYMBOLS = frozenset({"A", "E"})
 
+#: Routing header type emitted by the R builder. Type 0 is deprecated per
+#: RFC 8200 section 4.4 / RFC 5095: such packets are must-drop.
+ROUTING_HDR_TYPE = 0
+#: Chain symbols whose stimuli are must-drop (type-locked to the builder above:
+#: if R ever stops emitting Type 0, this empties and must-process applies again).
+DEPRECATED_SYMBOLS = frozenset({"R"}) if ROUTING_HDR_TYPE == 0 else frozenset()
+
+DEPRECATION_NOTE = ("Routing Header Type 0 is deprecated per RFC 8200 section 4.4 / "
+                    "RFC 5095; drop or rejection with reason is the required outcome.")
+
 # Option types known to common stacks; test otypes must avoid these.
 KNOWN_OPTION_TYPES = frozenset({0x00, 0x01, 0x05, 0x0B, 0x1E})
 # ER Table-3 unknown-option action-bit vectors (otype top 2 bits = action).
@@ -36,7 +46,8 @@ def _ext_layer(sym: str, dst: str, frag_id: int = 0xBEEF):
     if sym == "D":
         return IPv6ExtHdrDestOpt(options=[PadN(optdata=b"\x00" * 4)])
     if sym == "R":
-        return IPv6ExtHdrRouting(segleft=0, addresses=[dst])
+        assert ROUTING_HDR_TYPE == 0, "R builder drifted off Type 0; re-check DEPRECATED_SYMBOLS"
+        return IPv6ExtHdrRouting(type=ROUTING_HDR_TYPE, segleft=0, addresses=[dst])
     if sym == "F":
         return IPv6ExtHdrFragment(offset=0, m=0, id=frag_id)
     if sym == "A":

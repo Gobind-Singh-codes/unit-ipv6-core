@@ -52,12 +52,15 @@ def bpf_for(src: str, dst: str) -> str:
 
 def classify(kind: str, replies: list[str], errors: list[tuple],
              tx_seen: bool, proof: str, liveness_src: str,
-             control_pass: bool):
+             control_pass: bool, deprecated: bool = False):
     """Pure verdict decision for RFC 8200.
 
     replies: correlated Echo Reply summaries. errors: (type, code, ptr, summary)
     of DUT ICMPv6 errors seen in-window. proof: strict|auto|direct.
-    Returns (verdict, obs_kind, detail, deviation).
+    deprecated: stimulus carries a must-drop header (Routing Type 0); the ER's
+    "accept and attempt to process" is then satisfied by the attempt itself,
+    and drop/rejection is the required outcome.
+    Returns (verdict, obs_kind, detail, deviation, interpretation).
     """
     proven = (proof == "direct" and tx_seen) or \
              (proof == "auto" and tx_seen and bool(liveness_src))
@@ -66,46 +69,66 @@ def classify(kind: str, replies: list[str], errors: list[tuple],
         proof_note = ("delivery proven (TX on wire"
                       + (f", DUT alive per {liveness_src}" if liveness_src else
                          ", direct-topology assumption") + ")")
+    if deprecated and kind in ("IP-01", "IP-05"):
+        if replies:
+            return ("PASS", "DIRECTLY_OBSERVED", replies[0], "",
+                    "Processed end-to-end, satisfying the ER literally (accept and "
+                    "attempt to process); RH0-deprecation tension with RFC 5095 noted. "
+                    + P.DEPRECATION_NOTE)
+        if errors:
+            t, c, p, s = errors[0]
+            return ("PASS", "DIRECTLY_OBSERVED",
+                    f"DUT accepted the packet and attempted processing; returned "
+                    f"ICMPv6 Type {t} Code {c} ptr {p}: {s}", "",
+                    "The ER requires accepting and attempting to process extension "
+                    "headers in any order and number; the response itself demonstrates "
+                    "the attempt. " + P.DEPRECATION_NOTE)
+        if proven:
+            return ("PASS", "DIRECTLY_OBSERVED",
+                    f"no reply; {proof_note}", "", P.DEPRECATION_NOTE)
+        return ("INCONCLUSIVE", "UNKNOWN" if not tx_seen else "INFERRED",
+                f"tx_seen={tx_seen}; no reply",
+                "delivery/response unproven; not a PASS", "")
     if kind in ("IP-01", "IP-05"):
         if replies:
-            return ("PASS", "DIRECTLY_OBSERVED", replies[0], "")
+            return ("PASS", "DIRECTLY_OBSERVED", replies[0], "", "")
         if errors:
             t, c, p, s = errors[0]
             return ("FAIL", "DIRECTLY_OBSERVED", s,
                     f"DUT errored a valid packet instead of processing it "
-                    f"(ICMPv6 Type {t} Code {c} ptr {p})")
+                    f"(ICMPv6 Type {t} Code {c} ptr {p})", "")
         if proven:
             return ("FAIL", "DIRECTLY_OBSERVED",
                     f"stimulus on wire, {proof_note}, no reply",
-                    "mandatory processing absent although delivery is proven")
+                    "mandatory processing absent although delivery is proven", "")
         return ("INCONCLUSIVE", "UNKNOWN" if not tx_seen else "INFERRED",
-                f"tx_seen={tx_seen}; no reply", "delivery/response unproven; not a PASS")
+                f"tx_seen={tx_seen}; no reply", "delivery/response unproven; not a PASS", "")
     if kind in ("IP-02", "IP-04"):
         good = [e for e in errors if e[0] == 4 and e[1] == 2]
         if good:
             return ("PASS", "DIRECTLY_OBSERVED",
-                    f"ParamProblem code=2 ptr={good[0][2]}", "")
+                    f"ParamProblem code=2 ptr={good[0][2]}", "", "")
         if errors:
             t, c, p, s = errors[0]
             return ("FAIL", "DIRECTLY_OBSERVED", s,
                     f"wrong ICMPv6 error (Type {t} Code {c} ptr {p}); "
-                    f"required Parameter Problem Code 2")
+                    f"required Parameter Problem Code 2", "")
         if proven:
             return ("FAIL", "DIRECTLY_OBSERVED",
                     f"stimulus on wire, {proof_note}, no error",
-                    "mandatory Parameter Problem Code 2 missing although delivery is proven")
+                    "mandatory Parameter Problem Code 2 missing although delivery is proven", "")
         return ("INCONCLUSIVE", "UNKNOWN",
-                f"tx_seen={tx_seen}", "no Param Problem observed; DUT receipt unproven")
+                f"tx_seen={tx_seen}", "no Param Problem observed; DUT receipt unproven", "")
     if kind == "IP-03":
         if errors:
             t, c, p, s = errors[0]
             return ("FAIL", "DIRECTLY_OBSERVED", s,
-                    f"prohibited ICMPv6 error emitted (Type {t} Code {c})")
+                    f"prohibited ICMPv6 error emitted (Type {t} Code {c})", "")
         if control_pass or proven:
             why = "path proven by IP-01 control" if control_pass else proof_note
-            return ("PASS", "INFERRED", f"TX on wire; {why}, no error seen", "")
+            return ("PASS", "INFERRED", f"TX on wire; {why}, no error seen", "", "")
         return ("INCONCLUSIVE", "UNKNOWN", f"tx_seen={tx_seen}",
-                "silence without proven delivery is not discard")
+                "silence without proven delivery is not discard", "")
     raise ValueError(f"bad kind: {kind}")
 
 
@@ -168,7 +191,10 @@ def dry_run(args) -> int:
             print(f"Test: {tid}  chain={'->'.join(payload)}  icmp id={iid} seq={iseq}")
             print(f"  IPv6 src={args.source} dst={args.target} hlim=64")
             print(f"  chain_decode: {P.header_chain(pkt)}")
-            print("  Expected: Echo Reply correlated by id/seq")
+            if set(payload) & P.DEPRECATED_SYMBOLS:
+                print("  Note: Routing Type 0 deprecated (RFC 5095); drop/reject expected, recorded as PASS")
+            else:
+                print("  Expected: Echo Reply correlated by id/seq")
         elif kind == "IP-01-SEC":
             print(f"Test: {tid}  chain={'->'.join(payload)}  SKIPPED-TX "
                   f"(needs IPsec context -> NOT_APPLICABLE without it)")
@@ -181,7 +207,7 @@ def dry_run(args) -> int:
                                     if kind in ("IP-02", "IP-04") else "discard"))
         elif kind == "IP-05":
             print(f"Test: IP-05  Routing SegLeft=0 -> Echo id={iid} seq={iseq}")
-            print("  Expected: Echo Reply (routing header ignored, next header processed)")
+            print("  Note: Routing Type 0 deprecated (RFC 5095); drop/reject expected, recorded as PASS")
         print("  Transmission: SKIPPED")
     print(f"\n{len(cases)} case(s) rendered, 0 transmitted.")
     return 0
@@ -355,8 +381,13 @@ def run_live(args) -> int:
         rec["dut_packets"] = dut_packets
         rec["liveness_src"] = liveness_src
         control_pass = any(x.test_id.startswith("IP-01-") and x.verdict == "PASS" for x in results)
-        verdict, obs_kind, detail, deviation = classify(
-            kind, replies, errors, tx_seen, args.delivery_proof, liveness_src, control_pass)
+        chain = list(payload) if kind == "IP-01" else (["R"] if kind == "IP-05" else [])
+        deprecated = bool(set(chain) & P.DEPRECATED_SYMBOLS)
+        rec["deprecated_stimulus"] = deprecated
+        verdict, obs_kind, detail, deviation, interp = classify(
+            kind, replies, errors, tx_seen, args.delivery_proof, liveness_src, control_pass,
+            deprecated)
+        rec["interpretation"] = interp
         r = TestResult(test_id=tid, verdict=verdict,
                        observed=[Observation(obs_kind, detail)] if detail else [],
                        deviation=deviation)
