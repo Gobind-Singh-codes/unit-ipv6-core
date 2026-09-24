@@ -89,6 +89,11 @@ def extra_args(p):
     p.add_argument("--dad-proof", default="",
                    help="SLAAC-01 only: how you proved probing was active, "
                         "e.g. 'dut:dad-log'; empty = INCONCLUSIVE")
+    p.add_argument("--dad-remote-cmd", default="",
+                   help="SLAAC-01 only: remote command printing DUT receive/probe state "
+                        "(e.g. packet log) through --whitebox-tunnel; the tentative "
+                        "address (or its solicited-node group) appearing post-stimulus "
+                        "is PASS-grade receipt evidence")
     p.add_argument("--anycast-target", default="",
                    help="SLAAC-02 only: the device's anycast address; "
                         "empty = NOT_APPLICABLE")
@@ -97,7 +102,26 @@ def extra_args(p):
                         "e.g. 'dut:ip-addr-show'; an address string alone never proves it")
     p.add_argument("--lladdr", default="",
                    help="link-layer address put in ND options (default: your interface's MAC)")
+    p.add_argument("--whitebox", action="store_true",
+                   help="white-box checks through --whitebox-tunnel: SLAAC-01 DAD-log read "
+                        "around the delay-window stimuli")
+    p.add_argument("--whitebox-tunnel", default="",
+                   help="how this machine runs commands on the device, non-interactively, "
+                        "e.g. 'ssh -i lab.key admin@2001:db8:100::1' (key/agent auth only; "
+                        "stored in evidence, so never put a password here)")
+    p.add_argument("--whitebox-timeout", type=float, default=10.0,
+                   help="seconds allowed per remote check (default: 10.0)")
     return p
+
+
+def dad_log_shows(log_out: str, tentative: str, solicited: str) -> tuple[bool, str]:
+    """Pure: does the DUT log show receipt for the tentative address (itself or
+    its solicited-node group)? Returns (found, matched_line)."""
+    for line in (log_out or "").splitlines():
+        low = line.lower()
+        if tentative.lower() in low or solicited.lower() in low:
+            return True, line.strip()[:300]
+    return False, ""
 
 
 def dut_dad_probes(packets, anycast_target: str, own_srcs) -> list:
@@ -221,7 +245,7 @@ def run_live(args) -> int:
                 r = TestResult(test_id=tid, verdict="NOT_APPLICABLE",
                                deviation="no --tentative-addr configured")
                 rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
-            if not args.dad_proof:
+            if not args.dad_proof and not args.whitebox:
                 # Still send the robustness stimuli and record, but cannot claim the requirement.
                 try:
                     from scapy.layers.inet6 import IPv6
@@ -234,13 +258,57 @@ def run_live(args) -> int:
                     rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
                 save(tid, rec, got)
                 r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
-                               deviation="stimuli sent/recorded but DAD state unproven (need --dad-proof); "
-                                         "'DAD succeeded' alone would not prove this requirement")
+                               deviation="stimuli sent/recorded but DAD state unproven (need --dad-proof "
+                                         "or --whitebox DAD-log read); 'DAD succeeded' alone would not "
+                                         "prove this requirement")
                 rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, got); results.append(r)
             else:
-                r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
-                               deviation="dad-proof supplied but white-box correlation is a kink pass (base records only)")
-                rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r)
+                from common import whitebox as WB
+                if args.whitebox and not args.whitebox_tunnel:
+                    r = TestResult(test_id=tid, verdict="ERROR",
+                                   deviation="misconfigured white-box: --whitebox needs --whitebox-tunnel "
+                                             "(how to reach the DUT)")
+                    rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
+                if args.whitebox and not args.dad_remote_cmd:
+                    r = TestResult(test_id=tid, verdict="ERROR",
+                                   deviation="misconfigured white-box: --whitebox needs --dad-remote-cmd "
+                                             "(what to read on the DUT, e.g. a packet/DAD log)")
+                    rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
+                try:
+                    iid, iseq = P.derive_ids(args.seed, tid)
+                    s1, g1 = tx_rx(P.build_echo(args.source, "ff02::1", iid, iseq), "", 1.0)
+                    s2, g2 = tx_rx(P.build_echo(args.source, args.tentative_addr, iid, iseq + 1), "", 1.0)
+                    got = list(g1) + list(g2)
+                    chk = (WB.run_check(args.whitebox_tunnel, args.dad_remote_cmd,
+                                        args.whitebox_timeout) if args.whitebox else None)
+                except Exception as e:
+                    r = TestResult(test_id=tid, verdict="ERROR", deviation=str(e))
+                    rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
+                sn = P.solicited_node(args.tentative_addr)
+                if chk is not None:
+                    rec["whitebox"] = {"enabled": True, "tunnel": args.whitebox_tunnel,
+                                       "remote_cmd": args.dad_remote_cmd, "check": chk,
+                                       "solicited_node": sn}
+                save(tid, rec, got)
+                if chk is not None and (chk["rc"] != 0 or chk["timed_out"]):
+                    r = TestResult(test_id=tid, verdict="ERROR",
+                                   deviation="white-box DAD-log read failed; see whitebox.check")
+                elif chk is not None:
+                    found, line = dad_log_shows(chk["stdout"], args.tentative_addr, sn)
+                    rec["log_hit"] = line
+                    if found:
+                        r = TestResult(test_id=tid, verdict="PASS",
+                                       observed=[Observation("DIRECTLY_OBSERVED",
+                                                             f"DUT log shows receipt during delay: {line}")])
+                    else:
+                        r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
+                                       deviation="stimuli sent; DUT log shows no trace of the tentative "
+                                                 "address (absence in logs is not proof of non-receipt)")
+                else:
+                    r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
+                                   deviation="dad-proof attestation recorded without a white-box read; "
+                                             "upgrading to --whitebox would decide this")
+                rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, got); results.append(r)
 
         elif tid == "SLAAC-02":
             rec = base_rec(tid, tid, {"anycast_target": args.anycast_target,

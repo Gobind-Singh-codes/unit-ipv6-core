@@ -43,6 +43,45 @@ ER = {
 
 ROLE = "HOST"
 OBS_MINIMUM = "blackbox"
+#: Multicast destination for the IP-02/IP-04 multicast halves (all-nodes).
+MCAST_DST = "ff02::1"
+
+
+def classify_mcast(action: str, errors: list[tuple],
+                   tx_seen: bool, proof: str, liveness_src: str):
+    """Pure verdict for the multicast halves. action 11 (IP-02m): error to a
+    multicast dst is prohibited. action 10 (IP-04m): Param Problem Code 2 is
+    required even to multicast. Returns (verdict, obs_kind, detail, deviation)."""
+    proven = (proof == "direct" and tx_seen) or \
+             (proof == "auto" and tx_seen and bool(liveness_src))
+    if action == "11":
+        if errors:
+            t, c, p, s = errors[0]
+            return ("FAIL", "DIRECTLY_OBSERVED", s,
+                    f"ICMPv6 error (Type {t} Code {c}) sent for multicast-destined "
+                    f"packet; action 11 forbids it")
+        if proven:
+            return ("PASS", "INFERRED",
+                    "stimulus on wire with delivery proven, no error elicited", "")
+        return ("INCONCLUSIVE", "UNKNOWN", f"tx_seen={tx_seen}",
+                "silence without proven delivery proves no suppression")
+    if action == "10":
+        good = [e for e in errors if e[0] == 4 and e[1] == 2]
+        if good:
+            return ("PASS", "DIRECTLY_OBSERVED",
+                    f"ParamProblem code=2 ptr={good[0][2]} to multicast dst", "")
+        if errors:
+            t, c, p, s = errors[0]
+            return ("FAIL", "DIRECTLY_OBSERVED", s,
+                    f"wrong ICMPv6 error (Type {t} Code {c}); required Parameter "
+                    f"Problem Code 2 even to multicast")
+        if proven:
+            return ("FAIL", "DIRECTLY_OBSERVED",
+                    "stimulus on wire with delivery proven, no error",
+                    "mandatory Parameter Problem Code 2 missing although delivery is proven")
+        return ("INCONCLUSIVE", "UNKNOWN", f"tx_seen={tx_seen}",
+                "no Param Problem observed; DUT receipt unproven")
+    raise ValueError(f"bad action: {action}")
 
 DESCRIPTION = (
     "Check a network device's IPv6 base packet handling (RFC 8200): extension\n"
@@ -50,11 +89,12 @@ DESCRIPTION = (
     "Every verdict comes with packet evidence. Silence is never called a pass:\n"
     "unproven results are reported INCONCLUSIVE, not PASS."
 )
-TEST_IDS = "IP-01, IP-02, IP-03, IP-04, IP-05"
+TEST_IDS = "IP-01, IP-02, IP-02m, IP-03, IP-04, IP-04m, IP-05"
 TESTS_HELP = (
     "run only these tests, e.g. --tests IP-01-102,IP-05 (default: all). "
     "This program: IP-01 (extension-header matrix, sub-IDs like IP-01-102), "
-    "IP-02 / IP-03 / IP-04 (unknown option handling), IP-05 (Routing header)."
+    "IP-02 / IP-03 / IP-04 (unknown option handling, unicast), IP-02m / IP-04m "
+    "(same, to multicast), IP-05 (Routing header)."
 )
 EPILOG = """examples (dry-runs send nothing and work anywhere):
   RFC-8200-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --dry-run
@@ -73,8 +113,10 @@ rejection is recorded as PASS with the reason in evidence."""
 CATALOG = [
     ("IP-01", "Extension headers accepted and processed in any order and number."),
     ("IP-02", "Unknown option, action 11: discard + Parameter Problem Code 2 (unicast only)."),
+    ("IP-02m", "Same to multicast: silently discarded, NO error."),
     ("IP-03", "Unknown option, action 01: silently discard."),
     ("IP-04", "Unknown option, action 10: discard + Parameter Problem Code 2 (even to multicast)."),
+    ("IP-04m", "Same to multicast: error still required."),
     ("IP-05", "Routing header with Segments Left 0: ignore it, process the next header."),
 ]
 
@@ -207,9 +249,13 @@ def _cases_for_run(profile: str, max_chain: int, only: set[str] | None):
     for tid in ("IP-02", "IP-03", "IP-04", "IP-05"):
         if want(tid):
             cases.append((tid, tid, ()))
+    if want("IP-02") or (only and "IP-02m" in only):
+        cases.append(("IP-02m", "IP-02m", ()))
+    if want("IP-04") or (only and "IP-04m" in only):
+        cases.append(("IP-04m", "IP-04m", ()))
     if only:
         cases = [c for c in cases if c[0] in only or c[0].split("-")[0] in only
-                 or c[1] in only or tid_match(c, only)]
+                 or c[0].rstrip("m") in only or c[1] in only or tid_match(c, only)]
     return cases
 
 
@@ -242,6 +288,13 @@ def dry_run(args) -> int:
             print(f"  IPv6 Source: {args.source}  Destination: {args.target}")
             print("  Expected: " + ("discard + ICMPv6 Parameter Problem Code 2"
                                     if kind in ("IP-02", "IP-04") else "discard"))
+        elif kind in ("IP-02m", "IP-04m"):
+            otype = P.UNKNOWN_OTYPES["11" if kind == "IP-02m" else "10"]
+            print(f"Test: {tid}  Option Type: 0x{otype:02X}  Action bits: {P.action_bits(otype)}")
+            print(f"  IPv6 Source: {args.source}  Destination: {MCAST_DST} (multicast)")
+            print("  Expected: " + ("silently discarded, NO error (action 11)"
+                                    if kind == "IP-02m"
+                                    else "discard + ICMPv6 Parameter Problem Code 2 anyway (action 10)"))
         elif kind == "IP-05":
             print(f"Test: IP-05  Routing SegLeft=0 -> Echo id={iid} seq={iseq}")
             print("  Note: Routing Type 0 deprecated (RFC 5095); drop/reject expected, recorded as PASS")
@@ -320,11 +373,13 @@ def run_live(args) -> int:
 
     for tid, kind, payload in cases:
         iid, iseq = P.derive_ids(args.seed, tid)
+        er_key = {"IP-02m": "IP-02", "IP-04m": "IP-04"}.get(kind, kind if kind in ER else "IP-01")
+        case_dst = MCAST_DST if kind in ("IP-02m", "IP-04m") else args.target
         rec: dict = {"test_id": tid, "rfc": RFC, "er_table": "Table-3",
-                     "rfc_section": ER[kind if kind in ER else "IP-01"][0],
-                     "er_requirement": ER[kind if kind in ER else "IP-01"][1],
+                     "rfc_section": ER[er_key][0],
+                     "er_requirement": ER[er_key][1],
                      "role": ROLE, "observability": {"minimum": OBS_MINIMUM},
-                     "src": args.source, "dst": args.target, "icmp_id": iid, "icmp_seq": iseq,
+                     "src": args.source, "dst": case_dst, "icmp_id": iid, "icmp_seq": iseq,
                      "versions": ev.versions(), "interface": args.interface}
         if kind == "IP-01-SEC":
             r = TestResult(test_id=tid, verdict="NOT_APPLICABLE",
@@ -340,17 +395,19 @@ def run_live(args) -> int:
             l3 = P.build_echo(args.source, args.target, iid, iseq, payload)
             rec["chain"] = list(payload)
             want_reply = True
-        elif kind in ("IP-02", "IP-03", "IP-04"):
+        elif kind in ("IP-02", "IP-03", "IP-04", "IP-02m", "IP-04m"):
+            base = {"IP-02m": "IP-02", "IP-04m": "IP-04"}.get(kind, kind)
             otype = {"IP-02": P.UNKNOWN_OTYPES["11"], "IP-03": P.UNKNOWN_OTYPES["01"],
-                     "IP-04": P.UNKNOWN_OTYPES["10"]}[kind]
-            l3 = P.build_unknown_option(args.source, args.target, otype, iid, iseq)
+                     "IP-04": P.UNKNOWN_OTYPES["10"]}[base]
+            l3 = P.build_unknown_option(args.source, case_dst, otype, iid, iseq)
             rec["otype"] = f"0x{otype:02X}"
-            want_reply = kind in ("IP-02", "IP-04")
+            want_reply = base in ("IP-02", "IP-04")
         else:  # IP-05
             l3 = P.build_echo(args.source, args.target, iid, iseq, ["R"])
             want_reply = True
 
-        pkt = Ether(src=src_mac, dst=dst_mac) / l3
+        l2_mac = P.eth_dst_for_ipv6(case_dst) or dst_mac
+        pkt = Ether(src=src_mac, dst=l2_mac) / l3
         rec["stimulus"] = pkt.summary()
 
         def match(p, _iid=iid, _iseq=iseq):
@@ -369,14 +426,14 @@ def run_live(args) -> int:
                         and p[ICMPv6EchoReply].seq == _iseq)
             return False  # IP-03 discard: any match handled below as FAIL
 
-        def is_own_tx(p) -> bool:
+        def is_own_tx(p, _dst=case_dst) -> bool:
             try:
                 return (p.haslayer(IPv6) and p[IPv6].src == args.source
-                        and p[IPv6].dst == args.target)
+                        and p[IPv6].dst == _dst)
             except Exception:
                 return False
 
-        sniffer = AsyncSniffer(iface=args.interface, filter=bpf_for(args.source, args.target),
+        sniffer = AsyncSniffer(iface=args.interface, filter=bpf_for(args.source, case_dst),
                                store=True)
         try:
             sniffer.start()
@@ -421,9 +478,15 @@ def run_live(args) -> int:
         chain = list(payload) if kind == "IP-01" else (["R"] if kind == "IP-05" else [])
         deprecated = bool(set(chain) & P.DEPRECATED_SYMBOLS)
         rec["deprecated_stimulus"] = deprecated
-        verdict, obs_kind, detail, deviation, interp = classify(
-            kind, replies, errors, tx_seen, args.delivery_proof, liveness_src, control_pass,
-            deprecated)
+        if kind in ("IP-02m", "IP-04m"):
+            action = "11" if kind == "IP-02m" else "10"
+            verdict, obs_kind, detail, deviation = classify_mcast(
+                action, errors, tx_seen, args.delivery_proof, liveness_src)
+            interp = ""
+        else:
+            verdict, obs_kind, detail, deviation, interp = classify(
+                kind, replies, errors, tx_seen, args.delivery_proof, liveness_src, control_pass,
+                deprecated)
         rec["interpretation"] = interp
         r = TestResult(test_id=tid, verdict=verdict,
                        observed=[Observation(obs_kind, detail)] if detail else [],

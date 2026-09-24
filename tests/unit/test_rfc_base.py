@@ -139,6 +139,32 @@ def test_solicited_node_and_dad_matcher():
     assert found == [dut]
 
 
+def test_dad_log_shows():
+    def mod():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "RFC4862", "/root/unit-RFCv6/RFC-4862-conformance.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    m = mod()
+    log = "rcvd NS for tentative 2001:db8::99 during DAD delay\nnoise line\n"
+    found, line = m.dad_log_shows(log, "2001:db8::99", "ff02::1:ff00:99")
+    assert found and "2001:db8::99" in line
+    found, _ = m.dad_log_shows(log, "2001:db8::100", "ff02::1:ff00:100")
+    assert not found
+    found, _ = m.dad_log_shows("", "2001:db8::99", "ff02::1:ff00:99")
+    assert not found
+
+
+def test_hlim_param():
+    from common import packets as P
+    from scapy.layers.inet6 import IPv6
+    assert P.build_echo("2001:db8::2", "2001:db8::1", 1, 1, hlim=1)[IPv6].hlim == 1
+    assert P.build_echo("2001:db8::2", "2001:db8::1", 1, 1)[IPv6].hlim == 64
+
+
 def test_dry_runs_never_transmit(capsys):
     m3 = _load("RFC-4443-conformance")
     m61 = _load("RFC-4861-conformance")

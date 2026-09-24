@@ -127,7 +127,8 @@ def dry_run(args) -> int:
             print("  Expected: reply src is DUT unicast; needs --anycast-proof or NOT_APPLICABLE/INCONCLUSIVE")
         elif tid == "ICMP-02c":
             print(f"Test: {tid}  Echo to unmine-unicast target={args.unmine_target or '(unset)'} (L2 to DUT as next hop)")
-            print("  Expected: reply src is DUT unicast; unset target -> INCONCLUSIVE")
+            print("  Expected: reply src is DUT unicast; unset target -> INCONCLUSIVE. "
+                  "On silence, one hlim=1 probe follows (expiry at DUT exercises the same rule)")
         elif tid == "ICMP-03":
             print(f"Test: {tid}  Unknown informational Type 200, valid IPv6 envelope")
             print("  Expected: silently discarded (control echo first proves path)")
@@ -269,8 +270,31 @@ def run_live(args) -> int:
             rep = [p for p in got if p.haslayer(ICMPv6EchoReply)
                    and p[ICMPv6EchoReply].id == iid and p[ICMPv6EchoReply].seq == iseq]
             if not rep:
-                r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
-                               deviation="no reply; src rule untestable without a response")
+                if tid == "ICMP-02c":
+                    # Fallback: Hop Limit 1 expires at the DUT (first hop), whose
+                    # Time Exceeded reply exercises the same source rule. +1 packet.
+                    try:
+                        _, got_h = tx_rx(P.build_echo(args.source, dst, iid, iseq + 1, hlim=1),
+                                         "", args.observation_timeout, via=args.target)
+                    except Exception as e:
+                        r = TestResult(test_id=tid, verdict="ERROR", deviation=f"hop-limit fallback failed: {e}")
+                        rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, got); results.append(r); continue
+                    rec["fallback"] = "hlim=1 expiry probe"
+                    save(tid, rec, list(got) + list(got_h))
+                    tes = [p for p in got_h if p.haslayer(ICMPv6TimeExceeded)]
+                    if not tes:
+                        r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
+                                       deviation="no echo reply and no expiry reply; DUT never spoke")
+                    elif P.is_multicast(tes[0][IPv6].src):
+                        r = TestResult(test_id=tid, verdict="FAIL",
+                                       deviation=f"expiry reply src {tes[0][IPv6].src} is multicast")
+                    else:
+                        r = TestResult(test_id=tid, verdict="PASS",
+                                       observed=[Observation("DIRECTLY_OBSERVED",
+                                                             f"expiry reply src={tes[0][IPv6].src} (unicast)")])
+                else:
+                    r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
+                                   deviation="no reply; src rule untestable without a response")
             elif P.is_multicast(rep[0][IPv6].src):
                 r = TestResult(test_id=tid, verdict="FAIL",
                                deviation=f"reply src {rep[0][IPv6].src} is multicast")

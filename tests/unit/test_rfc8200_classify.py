@@ -79,7 +79,26 @@ def test_subid_filter_selects_exact_cases():
     assert sorted(t for t, _, _ in got) == ["IP-01-102", "IP-05"]
     # group ID still expands the whole group
     got = M._cases_for_run("core", 6, {"IP-02"})
-    assert [t for t, _, _ in got] == ["IP-02"]
-    # no filter -> full core set (44 + 2 SEC + 4)
+    assert [t for t, _, _ in got] == ["IP-02", "IP-02m"]
+    got = M._cases_for_run("core", 6, {"IP-04m"})
+    assert [t for t, _, _ in got] == ["IP-04m"]
+    # no filter -> full core set (44 + 2 SEC + 4 + 2 multicast halves)
     got = M._cases_for_run("core", 6, None)
-    assert len(got) == 50
+    assert len(got) == 52
+
+
+def test_classify_mcast():
+    v, k, d, dev = M.classify_mcast("11", [(4, 2, 1, "pp")], True, "auto", "X")
+    assert v == "FAIL" and "forbids" in dev
+    v, k, d, dev = M.classify_mcast("11", [], True, "auto", "X")
+    assert (v, k) == ("PASS", "INFERRED")
+    v, _, _, _ = M.classify_mcast("11", [], False, "auto", "")
+    assert v == "INCONCLUSIVE"
+    v, k, d, dev = M.classify_mcast("10", [(4, 2, 44, "pp")], True, "auto", "X")
+    assert v == "PASS"
+    v, _, _, dev = M.classify_mcast("10", [(4, 0, 40, "pp")], True, "auto", "X")
+    assert v == "FAIL" and "required" in dev
+    v, _, _, _ = M.classify_mcast("10", [], True, "auto", "X")
+    assert v == "FAIL"
+    v, _, _, _ = M.classify_mcast("10", [], True, "strict", "X")
+    assert v == "INCONCLUSIVE"
