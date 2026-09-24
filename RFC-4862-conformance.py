@@ -379,7 +379,9 @@ def run_live(args) -> int:
                     r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
                                    deviation="dad-proof attestation recorded without a white-box read; "
                                              "upgrading to --whitebox would decide this")
-                rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, got); results.append(r)
+                rec.update(verdict=r.verdict, deviation=r.deviation,
+                           observed=[{"kind": o.kind, "detail": o.detail} for o in r.observed]);
+                save(tid, rec, got); results.append(r)
 
         elif tid == "SLAAC-02":
             rec = base_rec(tid, tid, {"anycast_target": args.anycast_target,
