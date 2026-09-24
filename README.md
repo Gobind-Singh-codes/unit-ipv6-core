@@ -187,6 +187,41 @@ results/<timestamp>/
 └── IP-01-matrix.json   # the exact 44-chain matrix executed
 ```
 
+### Checking Path MTU (RFC 8201) with device readout
+
+`RFC-8201-conformance.py` accepts the same three lab values. If you can run
+commands on the device over ssh (key auth, non-interactive), add two flags and
+the run will also read the device's own PMTU cache before and after — the
+strongest evidence this test can produce:
+
+```bash
+uv run RFC-8201-conformance.py \
+  --interface <IFACE> \
+  --source <YOUR-IPV6> \
+  --target <DUT-IPV6> \
+  --output results \
+  --whitebox \
+  --whitebox-tunnel '<HOW-TO-SSH-TO-DUT>'
+```
+
+Example:
+
+```bash
+uv run RFC-8201-conformance.py \
+  --interface eth0 \
+  --source 2001:db8:100::2 \
+  --target 2001:db8:100::1 \
+  --output results \
+  --whitebox \
+  --whitebox-tunnel 'ssh -i lab.key admin@2001:db8:100::1'
+```
+
+No extra device command needed: the run figures out what to ask the device
+from your `--source`. If your device needs a different command, pass it with
+`--pmtu-remote-cmd '...'` (it must print the PMTU number). Add
+`--pmtu-require-cache` to fail closed unless the answer comes from a real
+route-cache entry instead of an interface default.
+
 **How to read a verdict (this matters):**
 
 | Verdict | Meaning |
@@ -216,6 +251,8 @@ Rules the suite enforces on itself:
 | See any program's options | `uv run RFC-8200-conformance.py --help` |
 | Preview without sending | `uv run RFC-8200-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --dry-run` |
 | Live run | Same as above, minus `--dry-run`, plus `--output results` |
+| Live run, one test only | Add `--tests IP-05` (any test ID; comma-separate several) |
+| 8201 with device readout | Add `--whitebox --whitebox-tunnel '<SSH-TO-DUT>'` |
 
 ---
 
@@ -229,6 +266,7 @@ Rules the suite enforces on itself:
 | `could not determine MAC for ...` | Wrong `--interface`. List yours with `ip -o link show`. |
 | Live run shows all `INCONCLUSIVE` | Usually no real DUT path (packets never came back). Check cables, addresses, firewall. |
 | Directly-connected lab, 8200 shows `INCONCLUSIVE` | Default `auto` proof already upgrades TX-on-wire + in-run liveness to `FAIL` where behavior is mandatory. Use `--delivery-proof strict` for the conservative mode. |
+| `ERROR: misconfigured white-box` | You passed half the white-box config. Read the hint it prints — it shows the exact missing flag with an example. Usually a missing `--whitebox-tunnel`. |
 | `thc-ipv6 / SI6 MISSING` | Optional extras. Not needed to run these tests. |
 
 ---

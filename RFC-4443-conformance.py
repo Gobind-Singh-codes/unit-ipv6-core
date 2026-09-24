@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from common.config import build_parser, validate_addrs
+from common.config import build_parser, validate_addrs, handle_list_tests
 from common import evidence as ev
 from common import packets as P
 from common.verdict import Observation, TestResult
@@ -42,16 +42,62 @@ ER = {
 CASES = ["ICMP-01", "ICMP-02a", "ICMP-02b", "ICMP-02c",
          "ICMP-03", "ICMP-04", "ICMP-05a", "ICMP-05b", "ICMP-05c"]
 
+DESCRIPTION = (
+    "Check a network device's ICMPv6 messages (RFC 4443): reply source addresses,\n"
+    "discarding unknown message types, and suppressing error messages where they\n"
+    "are forbidden (to multicast destinations, from non-unique sources).\n"
+    "Suppression tests run a valid control first, then the forbidden case."
+)
+TEST_IDS = "ICMP-01, ICMP-02a/b/c, ICMP-03, ICMP-04, ICMP-05a/b/c"
+TESTS_HELP = (
+    "run only these tests, e.g. --tests ICMP-04,ICMP-05a (default: all). "
+    "This program: ICMP-01 (reply source), ICMP-02a/b/c (reply source for "
+    "multicast/anycast/unmine destinations), ICMP-03 (unknown type discard), "
+    "ICMP-04/05a/b/c (error suppression). Letter suffixes select subcases."
+)
+EPILOG = """examples (dry-runs send nothing and work anywhere):
+  RFC-4443-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --dry-run
+  RFC-4443-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --dry-run --tests ICMP-04
+  RFC-4443-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --list-tests
+
+live run (replace the three values with your lab's; never the Internet):
+  RFC-4443-conformance.py --interface <IFACE> --source <YOUR-IPV6> --target <DUT-IPV6> --output results --verbose
+
+anycast tests need a configured anycast address plus proof, e.g.:
+  ... --anycast-target <ANYCAST> --anycast-proof 'dut:ip-addr-show' --tests ICMP-02b,ICMP-05c
+ICMP-02c needs a unicast address that is NOT the device's but routed via it:
+  ... --unmine-target <ROUTED-NOT-DUT> --tests ICMP-02c
+Without these, those tests report NOT_APPLICABLE/INCONCLUSIVE instead of guessing."""
+
+CATALOG = [
+    ("ICMP-01", "Reply to a DUT unicast address comes from that same address."),
+    ("ICMP-02a", "Reply to a multicast address comes from a DUT unicast address."),
+    ("ICMP-02b", "Same for an anycast address (needs --anycast-target + proof)."),
+    ("ICMP-02c", "Same for a unicast address not on the DUT (needs --unmine-target)."),
+    ("ICMP-03", "Unknown informational message type is silently discarded."),
+    ("ICMP-04", "No error message for packets sent to a multicast destination."),
+    ("ICMP-05a", "No error message for packets from the Unspecified address (::)."),
+    ("ICMP-05b", "No error message for packets from a multicast source."),
+    ("ICMP-05c", "No error message for packets from a known anycast source."),
+]
+
+
+
+
 
 def extra_args(p):
     p.add_argument("--anycast-target", default="",
-                   help="DUT anycast address (ICMP-02b/05c need explicit proof)")
+                   help="the device's anycast address under test (ICMP-02b/05c only); "
+                        "empty = those tests report NOT_APPLICABLE instead of guessing")
     p.add_argument("--anycast-proof", default="",
-                   help="how anycast was proven, e.g. 'dut:ip-addr-show'; empty=unproven")
+                   help="how you proved it is anycast, e.g. 'dut:ip-addr-show'; "
+                        "empty with a target = INCONCLUSIVE (an address string alone "
+                        "never proves anycast)")
     p.add_argument("--unmine-target", default="",
-                   help="unicast NOT on DUT, routed via DUT (ICMP-02c)")
+                   help="a unicast address that is NOT the device's but is routed via it "
+                        "(ICMP-02c only); empty = INCONCLUSIVE")
     p.add_argument("--mcast-dst", default="ff02::1",
-                   help="multicast dst for ICMP-02a/04")
+                   help="multicast destination for ICMP-02a/04 (default: ff02::1, all nodes)")
     return p
 
 
@@ -374,7 +420,12 @@ def run_live(args) -> int:
 
 
 def main(argv=None) -> int:
-    args = extra_args(build_parser(PROG, RFC)).parse_args(argv)
+    early = handle_list_tests(argv, CATALOG)
+    if early is not None:
+        return early
+    args = extra_args(build_parser(PROG, RFC, description=DESCRIPTION,
+                                   tests_help=TESTS_HELP, epilog=EPILOG,
+                                   test_ids=TEST_IDS)).parse_args(argv)
     if args.dry_run:
         return dry_run(args)
     return run_live(args)

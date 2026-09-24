@@ -189,11 +189,16 @@ def valid_nd_hlim(hlim: int) -> bool:
 
 
 def build_nd(kind: str, src: str, dst: str, tgt: str = "",
-             hlim: int = 255, lladdr: str | None = None):
-    """RS | RA | NS | NA with explicit Hop Limit. Pure builder."""
+             hlim: int = 255, lladdr: str | None = None,
+             prefix: str | None = None, plen: int = 48):
+    """RS | RA | NS | NA with explicit Hop Limit. Pure builder.
+
+    prefix/plen (RA only): attach a Prefix Information option, e.g. a
+    documentation prefix that must never appear in real DUT state.
+    """
     from scapy.layers.inet6 import (
         IPv6, ICMPv6ND_NA, ICMPv6ND_NS, ICMPv6ND_RA, ICMPv6ND_RS,
-        ICMPv6NDOptDstLLAddr, ICMPv6NDOptSrcLLAddr,
+        ICMPv6NDOptDstLLAddr, ICMPv6NDOptPrefixInfo, ICMPv6NDOptSrcLLAddr,
     )
     k = kind.upper()
     if k == "RS":
@@ -204,6 +209,10 @@ def build_nd(kind: str, src: str, dst: str, tgt: str = "",
         nd = ICMPv6ND_RA(routerlifetime=1800)
         if lladdr:
             nd = nd / ICMPv6NDOptSrcLLAddr(lladdr=lladdr)
+        if prefix:
+            nd = nd / ICMPv6NDOptPrefixInfo(prefix=prefix, prefixlen=plen,
+                                            L=1, A=1, validlifetime=300,
+                                            preferredlifetime=150)
     elif k == "NS":
         if not tgt:
             raise ValueError("NS requires tgt")

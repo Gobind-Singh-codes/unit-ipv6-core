@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-from common.config import build_parser, validate_addrs
+from common.config import build_parser, validate_addrs, handle_list_tests
 from common import evidence as ev
 from common import packets as P
 from common.verdict import Observation, TestResult
@@ -43,6 +43,43 @@ ER = {
 
 ROLE = "HOST"
 OBS_MINIMUM = "blackbox"
+
+DESCRIPTION = (
+    "Check a network device's IPv6 base packet handling (RFC 8200): extension\n"
+    "headers in any order and number, unknown options, and Routing headers.\n"
+    "Every verdict comes with packet evidence. Silence is never called a pass:\n"
+    "unproven results are reported INCONCLUSIVE, not PASS."
+)
+TEST_IDS = "IP-01, IP-02, IP-03, IP-04, IP-05"
+TESTS_HELP = (
+    "run only these tests, e.g. --tests IP-01-102,IP-05 (default: all). "
+    "This program: IP-01 (extension-header matrix, sub-IDs like IP-01-102), "
+    "IP-02 / IP-03 / IP-04 (unknown option handling), IP-05 (Routing header)."
+)
+EPILOG = """examples (dry-runs send nothing and work anywhere):
+  RFC-8200-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --dry-run
+  RFC-8200-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --dry-run --tests IP-05
+  RFC-8200-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --list-tests
+
+live run (replace the three values with your lab's; never the Internet):
+  RFC-8200-conformance.py --interface <IFACE> --source <YOUR-IPV6> --target <DUT-IPV6> --output results --verbose
+
+verdicts: PASS (proven) / FAIL (proven wrong, deviation logged) /
+INCONCLUSIVE (unproven, not failure) / NOT_APPLICABLE (e.g. IPsec chains
+without a security context) / ERROR (fix your lab, not the device).
+Routing Type 0 chains are must-drop packets (deprecated): their drop or
+rejection is recorded as PASS with the reason in evidence."""
+
+CATALOG = [
+    ("IP-01", "Extension headers accepted and processed in any order and number."),
+    ("IP-02", "Unknown option, action 11: discard + Parameter Problem Code 2 (unicast only)."),
+    ("IP-03", "Unknown option, action 01: silently discard."),
+    ("IP-04", "Unknown option, action 10: discard + Parameter Problem Code 2 (even to multicast)."),
+    ("IP-05", "Routing header with Segments Left 0: ignore it, process the next header."),
+]
+
+
+
 
 
 def bpf_for(src: str, dst: str) -> str:
@@ -422,11 +459,18 @@ def run_live(args) -> int:
 
 
 def main(argv=None) -> int:
-    parser = build_parser(PROG, RFC)
+    early = handle_list_tests(argv, CATALOG)
+    if early is not None:
+        return early
+    parser = build_parser(PROG, RFC, description=DESCRIPTION,
+                          tests_help=TESTS_HELP, epilog=EPILOG, test_ids=TEST_IDS,
+                          matrix_opts=True)
     parser.add_argument("--delivery-proof", default="auto", choices=["strict", "auto", "direct"],
-                        help="strict: silence is INCONCLUSIVE; auto (default): TX on wire + "
-                             "in-run DUT liveness counts as delivery proof (missing mandatory "
-                             "behavior becomes FAIL); direct: TX on wire alone suffices")
+                        help="what counts as proof the packet reached the device: "
+                             "strict = silence is always INCONCLUSIVE; auto (default) = "
+                             "packet seen on the wire plus the device answering some test "
+                             "in this run; direct = packet on the wire alone suffices "
+                             "(directly-connected lab only)")
     args = parser.parse_args(argv)
     if args.dry_run:
         print(f"delivery-proof: {args.delivery_proof}")

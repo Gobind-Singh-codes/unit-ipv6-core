@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-from common.config import build_parser, validate_addrs
+from common.config import build_parser, validate_addrs, handle_list_tests
 from common import evidence as ev
 from common import packets as P
 from common.verdict import Observation, TestResult
@@ -40,18 +40,63 @@ ER = {
 CASES = ["SLAAC-01", "SLAAC-02", "SLAAC-03", "SLAAC-04a", "SLAAC-04b", "SLAAC-05"]
 
 
+DESCRIPTION = (
+    "Check a network device's address auto-setup (RFC 4862): Duplicate Address\n"
+    "Detection behavior, ignoring reserved fields and unknown options, and the\n"
+    "Neighbor Solicitation/Advertisement validity checks.\n"
+    "Anycast is never guessed from an address string: those tests need proof."
+)
+TEST_IDS = "SLAAC-01, SLAAC-02, SLAAC-03, SLAAC-04a/b, SLAAC-05"
+TESTS_HELP = (
+    "run only these tests, e.g. --tests SLAAC-04 (default: all). "
+    "This program: SLAAC-01 (traffic during address probing), SLAAC-02 (no "
+    "probing on anycast addresses), SLAAC-03/05 (bad Solicitation/Advertisement "
+    "discard), SLAAC-04a/b (reserved field / unknown option ignored)."
+)
+EPILOG = """examples (dry-runs send nothing and work anywhere):
+  RFC-4862-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --dry-run
+  RFC-4862-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --dry-run --tests SLAAC-04
+  RFC-4862-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --list-tests
+
+live run (replace the three values with your lab's; never the Internet):
+  RFC-4862-conformance.py --interface <IFACE> --source <YOUR-IPV6> --target <DUT-IPV6> --output results --verbose
+
+address-probing test needs the address being born plus how you proved it:
+  ... --tentative-addr <ADDR> --dad-delay 1.0 --dad-proof 'dut:dad-log' --tests SLAAC-01
+anycast test needs the address plus proof (an address string alone proves nothing):
+  ... --anycast-target <ANYCAST> --anycast-proof 'dut:ip-addr-show' --tests SLAAC-02
+Without these, those tests report NOT_APPLICABLE/INCONCLUSIVE instead of guessing."""
+
+CATALOG = [
+    ("SLAAC-01", "Device receives traffic for a tentative address during probing delay."),
+    ("SLAAC-02", "No Duplicate Address Detection performed on anycast addresses."),
+    ("SLAAC-03", "Bad Neighbor Solicitations (Hop Limit != 255) are discarded."),
+    ("SLAAC-04a", "Altered Reserved field is ignored, processing continues."),
+    ("SLAAC-04b", "Unrecognized option is ignored, processing continues."),
+    ("SLAAC-05", "Bad Neighbor Advertisements (Hop Limit != 255) are discarded."),
+]
+
+
+
+
+
 def extra_args(p):
     p.add_argument("--tentative-addr", default="",
-                   help="SLAAC-01: tentative address under DAD on the DUT")
+                   help="SLAAC-01 only: the address currently being probed on the device; "
+                        "empty = NOT_APPLICABLE (the tool will not invent one)")
     p.add_argument("--dad-delay", type=float, default=1.0,
-                   help="SLAAC-01: DAD delay window to exercise (seconds)")
+                   help="SLAAC-01 only: probing delay window in seconds (default: 1.0)")
     p.add_argument("--dad-proof", default="",
-                   help="SLAAC-01: how DAD state was proven, e.g. 'dut:dad-log'; empty=unproven")
+                   help="SLAAC-01 only: how you proved probing was active, "
+                        "e.g. 'dut:dad-log'; empty = INCONCLUSIVE")
     p.add_argument("--anycast-target", default="",
-                   help="SLAAC-02: DUT anycast address (needs proof)")
+                   help="SLAAC-02 only: the device's anycast address; "
+                        "empty = NOT_APPLICABLE")
     p.add_argument("--anycast-proof", default="",
-                   help="SLAAC-02: how anycast was proven; empty=unproven")
-    p.add_argument("--lladdr", default="", help="link-layer addr for ND options")
+                   help="SLAAC-02 only: how you proved it is anycast, "
+                        "e.g. 'dut:ip-addr-show'; an address string alone never proves it")
+    p.add_argument("--lladdr", default="",
+                   help="link-layer address put in ND options (default: your interface's MAC)")
     return p
 
 
@@ -289,7 +334,12 @@ def run_live(args) -> int:
 
 
 def main(argv=None) -> int:
-    args = extra_args(build_parser(PROG, RFC)).parse_args(argv)
+    early = handle_list_tests(argv, CATALOG)
+    if early is not None:
+        return early
+    args = extra_args(build_parser(PROG, RFC, description=DESCRIPTION,
+                                   tests_help=TESTS_HELP, epilog=EPILOG,
+                                   test_ids=TEST_IDS)).parse_args(argv)
     if args.dry_run:
         return dry_run(args)
     return run_live(args)

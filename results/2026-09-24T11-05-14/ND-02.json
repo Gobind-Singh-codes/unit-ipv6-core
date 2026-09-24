@@ -1,0 +1,52 @@
+{
+  "bogus_introduced": false,
+  "bogus_prefix": "2001:db8:dead::/48",
+  "deviation": "",
+  "dst": "fd:33:33:33::1",
+  "er_requirement": "A node MUST silently discard any received Router Advertisement messages that do not satisfy the validity checks, including an IP Hop Limit value of 255.",
+  "er_table": "Table-4",
+  "interface": "host0",
+  "observability": {
+    "minimum": "blackbox"
+  },
+  "pcap": "pcap/ND-02.pcap",
+  "rfc": "4861",
+  "rfc_section": "6.1.2",
+  "role": "ROUTER",
+  "src": "fd:33:33:33:7446:4ff:fe34:5702",
+  "state_changed": false,
+  "stimulus": "Ether / IPv6 / ICMPv6ND_RA / ICMPv6NDOptSrcLLAddr / ICMPv6 Neighbor Discovery Option - Prefix Information 2001:db8:dead::/48 On-link 1 Autonomous Address 1 Router Address 0",
+  "test_id": "ND-02",
+  "tx_seen_on_wire": true,
+  "verdict": "PASS",
+  "versions": {
+    "platform": "Linux-7.1.3-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "scapy": "2.6.1"
+  },
+  "whitebox": {
+    "enabled": true,
+    "post": {
+      "check": {
+        "cmd": "ssh root@fd:33:33:33::1 ip -6 route show",
+        "rc": 0,
+        "stderr": "",
+        "stdout": "fd:33:33:33::/64 dev end1_33 proto static src fd:33:33:33::1 metric 118 pref medium\nfd:33:33:33::/64 dev end1_33 proto kernel metric 256 pref medium\n2401:4900:1c6f:1dcb::/64 dev wan_300 proto kernel metric 256 expires 85846sec pref medium\n2401:4900:1c6f:1dcb::/64 dev wan_300 proto ra metric 1024 expires 85846sec pref medium\n2401:4900:1c71:7178::/64 dev end1 proto static src 2401:4900:1c71:7178:d038:b2ff:fe49:b0ed metric 133 pref medium\n2401:4900:1c71:7178::/64 dev end1 proto kernel metric 256 pref medium\n2403:8400:10:8::/64 dev wan_400 proto static src 2403:8400:10:8:d0f8:40ff:fe56:4207 metric 46 pref medium\n2403:8400:10:8::/64 dev wan_400 proto kernel metric 256 pref medium\ncafe::/64 dev end1_20 proto static src cafe::1 metric 110 pref medium\ncafe::/64 dev end1_20 proto kernel metric 256 pref medium\nfd00:366c:6106:9a15::/64 dev tun1 proto kernel metric 256 pref medium\nfd00:a108:4269:392f::/64 dev wg13 proto kernel metric 256 pref medium\nfdca:2140:68e1:e7b8::/64 dev wt0 proto kernel metric 256 pref medium\nfe80::/64 dev end0 proto kernel metric 256 pref medium\nfe80::/64 dev wan proto kernel metric 256 pref medium\nfe80::/64 dev end1 proto kernel metric 256 pref medium\nfe80::/64 dev wan_200 proto kernel metric 256 pref medium\nfe80::/64 dev wan_300 proto kernel metric 256 pref medium\nfe80::/64 dev wan_400 proto kernel metric 256 pref medium\nfe80::/64 dev wan_100 proto kernel metric 256 pref medium\nfe80::/64 dev end1_10 proto kernel metric 256 pref medium\nfe80::/64 dev end1_20 proto kernel metric 256 pref medium\nfe80::/64 dev end1_45 proto kernel metric 256 pref medium\nfe80::/64 dev end1_33 proto kernel metric 256 pref medium\nfe80::/64 dev tun0 proto kernel metric 256 pref medium\nfe80::/64 dev tun1 proto kernel metric 256 pref medium\nfeed::/64 dev end1_10 proto static src feed::1 metric 111 pref medium\nfeed::/64 dev end1_10 proto kernel metric 256 pref medium\ndefault nhid 2955905949 via fe80::1 dev wan_300 proto ra metric 30 expires 1246sec pref medium\ndefault via 2403:8400:10:8::1 dev wan_400 proto static metric 46 pref medium\ndefault nhid 2955905949 via fe80::1 dev wan_300 proto ra metric 1024 expires 1246sec pref medium\ndefault via fe80::1 dev wan_300 proto ra metric 1024 expires 1246sec hoplimit 64 pref medium\n",
+        "timed_out": false,
+        "truncated": false
+      }
+    },
+    "pre": {
+      "check": {
+        "cmd": "ssh root@fd:33:33:33::1 ip -6 route show",
+        "rc": 0,
+        "stderr": "",
+        "stdout": "fd:33:33:33::/64 dev end1_33 proto static src fd:33:33:33::1 metric 118 pref medium\nfd:33:33:33::/64 dev end1_33 proto kernel metric 256 pref medium\n2401:4900:1c6f:1dcb::/64 dev wan_300 proto kernel metric 256 expires 85852sec pref medium\n2401:4900:1c6f:1dcb::/64 dev wan_300 proto ra metric 1024 expires 85852sec pref medium\n2401:4900:1c71:7178::/64 dev end1 proto static src 2401:4900:1c71:7178:d038:b2ff:fe49:b0ed metric 133 pref medium\n2401:4900:1c71:7178::/64 dev end1 proto kernel metric 256 pref medium\n2403:8400:10:8::/64 dev wan_400 proto static src 2403:8400:10:8:d0f8:40ff:fe56:4207 metric 46 pref medium\n2403:8400:10:8::/64 dev wan_400 proto kernel metric 256 pref medium\ncafe::/64 dev end1_20 proto static src cafe::1 metric 110 pref medium\ncafe::/64 dev end1_20 proto kernel metric 256 pref medium\nfd00:366c:6106:9a15::/64 dev tun1 proto kernel metric 256 pref medium\nfd00:a108:4269:392f::/64 dev wg13 proto kernel metric 256 pref medium\nfdca:2140:68e1:e7b8::/64 dev wt0 proto kernel metric 256 pref medium\nfe80::/64 dev end0 proto kernel metric 256 pref medium\nfe80::/64 dev wan proto kernel metric 256 pref medium\nfe80::/64 dev end1 proto kernel metric 256 pref medium\nfe80::/64 dev wan_200 proto kernel metric 256 pref medium\nfe80::/64 dev wan_300 proto kernel metric 256 pref medium\nfe80::/64 dev wan_400 proto kernel metric 256 pref medium\nfe80::/64 dev wan_100 proto kernel metric 256 pref medium\nfe80::/64 dev end1_10 proto kernel metric 256 pref medium\nfe80::/64 dev end1_20 proto kernel metric 256 pref medium\nfe80::/64 dev end1_45 proto kernel metric 256 pref medium\nfe80::/64 dev end1_33 proto kernel metric 256 pref medium\nfe80::/64 dev tun0 proto kernel metric 256 pref medium\nfe80::/64 dev tun1 proto kernel metric 256 pref medium\nfeed::/64 dev end1_10 proto static src feed::1 metric 111 pref medium\nfeed::/64 dev end1_10 proto kernel metric 256 pref medium\ndefault nhid 2955905949 via fe80::1 dev wan_300 proto ra metric 30 expires 1252sec pref medium\ndefault via 2403:8400:10:8::1 dev wan_400 proto static metric 46 pref medium\ndefault nhid 2955905949 via fe80::1 dev wan_300 proto ra metric 1024 expires 1252sec pref medium\ndefault via fe80::1 dev wan_300 proto ra metric 1024 expires 1252sec hoplimit 64 pref medium\n",
+        "timed_out": false,
+        "truncated": false
+      }
+    },
+    "remote_cmd": "ip -6 route show",
+    "tunnel": "ssh root@fd:33:33:33::1"
+  }
+}

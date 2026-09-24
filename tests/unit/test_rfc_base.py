@@ -95,6 +95,26 @@ def test_fragment_for_wire():
     assert m01._iface_mtu("lo") >= 1280
 
 
+def test_list_tests_and_help(capsys):
+    import pytest
+    catalogs = {
+        "RFC-8200-conformance": ["IP-01", "IP-02", "IP-03", "IP-04", "IP-05"],
+        "RFC-4443-conformance": ["ICMP-01", "ICMP-02a", "ICMP-03", "ICMP-04", "ICMP-05a"],
+        "RFC-4861-conformance": ["ND-01", "ND-02", "ND-03", "ND-04", "ND-05"],
+        "RFC-4862-conformance": ["SLAAC-01", "SLAAC-02", "SLAAC-03", "SLAAC-04a", "SLAAC-05"],
+        "RFC-8201-conformance": ["PMTU-01"],
+    }
+    for prog, ids in catalogs.items():
+        m = _load(prog)
+        assert m.main(["--list-tests"]) == 0
+        out = capsys.readouterr().out
+        for tid in ids:
+            assert tid in out, f"{prog} catalog missing {tid}"
+        with pytest.raises(SystemExit) as e:
+            m.main(["--help"])
+        assert e.value.code == 0
+
+
 def test_dry_runs_never_transmit(capsys):
     m3 = _load("RFC-4443-conformance")
     m61 = _load("RFC-4861-conformance")

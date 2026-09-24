@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-from common.config import build_parser, validate_addrs
+from common.config import build_parser, validate_addrs, handle_list_tests
 from common import evidence as ev
 from common import packets as P
 from common import whitebox as WB
@@ -30,15 +30,53 @@ ER = {
 }
 
 
+DESCRIPTION = (
+    "Check a network device's Path MTU Discovery (RFC 8201): a Packet Too Big\n"
+    "message reporting an MTU below 1280 must be discarded, and the device's\n"
+    "path MTU estimate must never drop below 1280.\n"
+    "The run sends large echo probes, injects such a message quoting a real\n"
+    "device packet, and compares fragmentation before and after."
+)
+TEST_IDS = "PMTU-01"
+TESTS_HELP = (
+    "run only these tests (default: all). This program has exactly one: "
+    "PMTU-01 (sub-floor Packet Too Big is discarded, estimate stays >= 1280)."
+)
+EPILOG = """examples (dry-runs send nothing and work anywhere):
+  RFC-8201-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --dry-run
+  RFC-8201-conformance.py --interface host0 --source 2001:db8::2 --target 2001:db8::1 --list-tests
+
+live run (replace the three values with your lab's; never the Internet):
+  RFC-8201-conformance.py --interface <IFACE> --source <YOUR-IPV6> --target <DUT-IPV6> --output results --verbose
+
+strongest evidence: also read the device's own MTU cache before and after
+(requires non-interactive ssh, e.g. key auth):
+  ... --whitebox --whitebox-tunnel 'ssh -i lab.key admin@<DUT-IPV6>'
+Without that, the verdict rests on observed fragmentation (still evidence,
+reported as inferred). Add --pmtu-require-cache to fail closed unless the
+answer comes from a real route-cache entry."""
+
+CATALOG = [
+    ("PMTU-01", "Packet Too Big reporting MTU < 1280 is discarded; estimate stays >= 1280."),
+]
+
+
+
+
+
 def extra_args(p):
     p.add_argument("--ptb-mtu", type=int, default=1000,
                    help="injected PTB MTU (must be <1280 to exercise the requirement)")
     p.add_argument("--ptb-src", default="",
                    help="PTB source (default: --target's pretended router; recorded explicitly)")
     p.add_argument("--whitebox", action="store_true",
-                   help="enable test-scoped white-box observation of the DUT PMTU cache")
+                   help="also read the device's own MTU cache before and after (strongest "
+                        "evidence; needs --whitebox-tunnel; without it the verdict rests "
+                        "on observed fragmentation)")
     p.add_argument("--whitebox-tunnel", default="",
-                   help="transport prefix, e.g. 'ssh -i lab.key admin@fd:33:33:33::1'")
+                   help="how this machine runs commands on the device, non-interactively, "
+                        "e.g. 'ssh -i lab.key admin@2001:db8:100::1' (key/agent auth only; "
+                        "stored in evidence, so never put a password here)")
     p.add_argument("--whitebox-timeout", type=float, default=10.0,
                    help="seconds allowed per remote check")
     p.add_argument("--pmtu-remote-cmd", default="",
@@ -305,7 +343,12 @@ def run_live(args) -> int:
 
 
 def main(argv=None) -> int:
-    args = extra_args(build_parser(PROG, RFC)).parse_args(argv)
+    early = handle_list_tests(argv, CATALOG)
+    if early is not None:
+        return early
+    args = extra_args(build_parser(PROG, RFC, description=DESCRIPTION,
+                                   tests_help=TESTS_HELP, epilog=EPILOG,
+                                   test_ids=TEST_IDS)).parse_args(argv)
     if args.dry_run:
         return dry_run(args)
     return run_live(args)
