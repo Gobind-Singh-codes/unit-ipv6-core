@@ -1,0 +1,23 @@
+# Python bytecode and caches (never reviewable, regenerate on every run)
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.hypothesis/
+
+# Virtual environments and tooling state
+.venv/
+venv/
+*.egg-info/
+.uv/
+
+# Editors and OS noise
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Local scratch (outside the repo evidence flow)
+/tmp/
+prereqs.json
