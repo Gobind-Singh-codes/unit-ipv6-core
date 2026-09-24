@@ -1,0 +1,136 @@
+[
+  {
+    "id": "IP-01-003",
+    "chain": [
+      "R"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-102",
+    "chain": [
+      "H",
+      "R"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-111",
+    "chain": [
+      "R",
+      "H"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-113",
+    "chain": [
+      "R",
+      "F"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-116",
+    "chain": [
+      "F",
+      "H"
+    ],
+    "verdict": "FAIL"
+  },
+  {
+    "id": "IP-01-118",
+    "chain": [
+      "F",
+      "R"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-201",
+    "chain": [
+      "H",
+      "H"
+    ],
+    "verdict": "FAIL"
+  },
+  {
+    "id": "IP-01-202",
+    "chain": [
+      "H",
+      "H",
+      "H"
+    ],
+    "verdict": "FAIL"
+  },
+  {
+    "id": "IP-01-205",
+    "chain": [
+      "R",
+      "R"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-206",
+    "chain": [
+      "R",
+      "R",
+      "R"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-207",
+    "chain": [
+      "F",
+      "F"
+    ],
+    "verdict": "FAIL"
+  },
+  {
+    "id": "IP-01-208",
+    "chain": [
+      "F",
+      "F",
+      "F"
+    ],
+    "verdict": "FAIL"
+  },
+  {
+    "id": "IP-01-305",
+    "chain": [
+      "H",
+      "R",
+      "R"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-306",
+    "chain": [
+      "R",
+      "H",
+      "H"
+    ],
+    "verdict": "PASS"
+  },
+  {
+    "id": "IP-01-309",
+    "chain": [
+      "H",
+      "F",
+      "F"
+    ],
+    "verdict": "FAIL"
+  },
+  {
+    "id": "IP-01-310",
+    "chain": [
+      "F",
+      "H",
+      "H"
+    ],
+    "verdict": "FAIL"
+  }
+]
