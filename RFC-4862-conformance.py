@@ -94,6 +94,15 @@ def extra_args(p):
                         "(e.g. packet log) through --whitebox-tunnel; the tentative "
                         "address (or its solicited-node group) appearing post-stimulus "
                         "is PASS-grade receipt evidence")
+    p.add_argument("--dad-bringup-cmd", default="",
+                   help="SLAAC-01 only: remote command that births the tentative address "
+                        "(e.g. 'ip addr add fd:33:33:33::dead/64 dev end1_33'), run by the "
+                        "harness itself immediately before stimuli so timing is strict; "
+                        "recorded with timestamps")
+    p.add_argument("--dad-teardown-cmd", default="",
+                   help="SLAAC-01 only: remote cleanup after the test "
+                        "(e.g. 'ip addr del fd:33:33:33::dead/64 dev end1_33'); failure "
+                        "warns loudly but never changes the verdict")
     p.add_argument("--anycast-target", default="",
                    help="SLAAC-02 only: the device's anycast address; "
                         "empty = NOT_APPLICABLE")
@@ -122,6 +131,13 @@ def dad_log_shows(log_out: str, tentative: str, solicited: str) -> tuple[bool, s
         if tentative.lower() in low or solicited.lower() in low:
             return True, line.strip()[:300]
     return False, ""
+
+
+def window_ok(t_bringup: float, t_first_tx: float, delay: float) -> tuple[bool, float]:
+    """Pure strict-timing criterion: first stimulus must fall inside the DAD
+    delay window measured from bringup. Returns (ok, gap_seconds)."""
+    gap = t_first_tx - t_bringup
+    return gap <= delay, gap
 
 
 def l2_target(dst: str, via: str | None = None) -> str:
@@ -159,11 +175,17 @@ def dry_run(args) -> int:
     for tid in selected(args):
         if tid == "SLAAC-01":
             print(f"Test: SLAAC-01  tentative={args.tentative_addr or '(unset)'} dad-delay={args.dad_delay}s")
+            if args.dad_bringup_cmd:
+                print(f"  Bringup (harness-run, timed): '{args.dad_bringup_cmd}'")
             print("  Stimulus: datagrams to all-nodes + solicited-node of tentative during delay")
             print("  Expected: DUT receives/processes them (tentative in DUT log -> PASS)")
             if args.whitebox:
                 print(f"  White-box read via [{args.whitebox_tunnel or '(unset)'}]: "
                       f"'{args.dad_remote_cmd or '(unset: --dad-remote-cmd)'}'")
+            if args.dad_teardown_cmd:
+                print(f"  Teardown (harness-run, verdict unaffected): '{args.dad_teardown_cmd}'")
+            if args.dad_bringup_cmd:
+                print(f"  Window crit: first stimulus must fall within {args.dad_delay}s of bringup")
         elif tid == "SLAAC-02":
             print(f"Test: SLAAC-02  anycast-target={args.anycast_target or '(unset)'}")
             print("  Stimulus: control NS for DUT unicast (expects NA), then 3 DAD-style NS "
@@ -288,14 +310,40 @@ def run_live(args) -> int:
                                    deviation="misconfigured white-box: --whitebox needs --dad-remote-cmd "
                                              "(what to read on the DUT, e.g. a packet/DAD log)")
                     rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
+                if args.dad_bringup_cmd and not args.whitebox:
+                    r = TestResult(test_id=tid, verdict="ERROR",
+                                   deviation="misconfigured: --dad-bringup-cmd needs --whitebox "
+                                             "(birth the address through the tunnel)")
+                    rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
                 try:
+                    t_bringup = None
+                    if args.dad_bringup_cmd:
+                        up_chk = WB.run_check(args.whitebox_tunnel, args.dad_bringup_cmd,
+                                              args.whitebox_timeout)
+                        t_bringup = time.time()
+                        rec["bringup"] = {"cmd": args.dad_bringup_cmd, "check": up_chk,
+                                          "t_bringup": t_bringup}
+                        if up_chk["rc"] != 0 or up_chk["timed_out"]:
+                            r = TestResult(test_id=tid, verdict="ERROR",
+                                           deviation="bringup command failed; no address born, "
+                                                     "nothing transmitted; see bringup.check")
+                            rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
                     iid, iseq = P.derive_ids(args.seed, tid)
+                    t_first_tx = time.time()
                     s1, g1 = tx_rx(P.build_echo(args.source, "ff02::1", iid, iseq), "", 1.0)
                     s2, g2 = tx_rx(P.build_echo(args.source, args.tentative_addr, iid, iseq + 1), "", 1.0,
                     via=args.target)  # tentative answers no solicitations: L2 to the DUT
                     got = list(g1) + list(g2)
+                    rec["t_first_tx"] = t_first_tx
                     chk = (WB.run_check(args.whitebox_tunnel, args.dad_remote_cmd,
                                         args.whitebox_timeout) if args.whitebox else None)
+                    if args.dad_teardown_cmd and args.whitebox:
+                        down_chk = WB.run_check(args.whitebox_tunnel, args.dad_teardown_cmd,
+                                                args.whitebox_timeout)
+                        rec["teardown"] = {"cmd": args.dad_teardown_cmd, "check": down_chk}
+                        if down_chk["rc"] != 0 or down_chk["timed_out"]:
+                            print("WARNING: teardown failed; address may remain on the DUT "
+                                  "(verdict unaffected). See teardown.check.")
                 except Exception as e:
                     r = TestResult(test_id=tid, verdict="ERROR", deviation=str(e))
                     rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
@@ -305,6 +353,14 @@ def run_live(args) -> int:
                                        "remote_cmd": args.dad_remote_cmd, "check": chk,
                                        "solicited_node": sn}
                 save(tid, rec, got)
+                if t_bringup is not None:
+                    ok, gap = window_ok(t_bringup, t_first_tx, args.dad_delay)
+                    rec["window_gap_s"] = round(gap, 3)
+                    if not ok:
+                        r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
+                                       deviation=f"first stimulus {gap:.3f}s after bringup exceeds "
+                                                 f"--dad-delay {args.dad_delay}s: missed the delay window")
+                        rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, got); results.append(r); continue
                 if chk is not None and (chk["rc"] != 0 or chk["timed_out"]):
                     r = TestResult(test_id=tid, verdict="ERROR",
                                    deviation="white-box DAD-log read failed; see whitebox.check")

@@ -195,3 +195,21 @@ def test_dry_runs_never_transmit(capsys):
                      "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "SKIPPED" in out
+
+
+def test_window_ok_criterion():
+    def mod():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "RFC4862c", "/root/unit-RFCv6/RFC-4862-conformance.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    m = mod()
+    ok, gap = m.window_ok(100.0, 100.2, 1.0)
+    assert ok and abs(gap - 0.2) < 1e-9
+    ok, gap = m.window_ok(100.0, 101.0, 1.0)
+    assert ok  # boundary inclusive
+    ok, gap = m.window_ok(100.0, 102.5, 1.0)
+    assert not ok and gap > 1.0
