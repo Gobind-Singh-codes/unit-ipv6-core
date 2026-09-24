@@ -114,7 +114,11 @@ def classify(kind: str, replies: list[str], errors: list[tuple],
 def _cases_for_run(profile: str, max_chain: int, only: set[str] | None):
     """Expand selected tests into executable cases. Pure (no I/O)."""
     cases = []  # (id, kind, payload)
-    want = (lambda tid: True) if not only else (lambda tid: tid in only or tid.split("-")[0] in only)
+    if not only:
+        want = lambda tid: True
+    else:
+        # Prefix-aware: a sub-ID (IP-01-102) implies its group (IP-01).
+        want = lambda tid: any(o == tid or o.startswith(tid + "-") for o in only)
     if want("IP-01"):
         if profile == "exhaustive":
             for tid, ch in P.matrix_single():

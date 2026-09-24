@@ -72,3 +72,14 @@ def test_ip03_logic():
     assert v == "PASS"
     v, _, _, _ = M.classify("IP-03", [], [], False, "strict", "", False)
     assert v == "INCONCLUSIVE"
+
+
+def test_subid_filter_selects_exact_cases():
+    got = M._cases_for_run("core", 6, {"IP-01-102", "IP-05"})
+    assert sorted(t for t, _, _ in got) == ["IP-01-102", "IP-05"]
+    # group ID still expands the whole group
+    got = M._cases_for_run("core", 6, {"IP-02"})
+    assert [t for t, _, _ in got] == ["IP-02"]
+    # no filter -> full core set (44 + 2 SEC + 4)
+    got = M._cases_for_run("core", 6, None)
+    assert len(got) == 50
