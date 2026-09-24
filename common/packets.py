@@ -265,6 +265,15 @@ def pmtu_floor_ok(mtu: int) -> bool:
     return mtu >= 1280
 
 
+def solicited_node(addr: str) -> str:
+    """Solicited-node multicast address for a unicast/anycast target (pure)."""
+    import ipaddress
+    packed = ipaddress.IPv6Address(addr).packed
+    tail = packed[-3:]
+    raw = "ff02::1:ff%02x:%02x%02x" % (tail[0], tail[1], tail[2])
+    return ipaddress.IPv6Address(raw).compressed
+
+
 def build_udp_trigger(src: str, dst: str, sport: int, dport: int = 59999,
                       hlim: int = 64):
     """UDP to (likely) closed port: elicits ICMPv6 Port Unreachable on unicast.

@@ -115,6 +115,30 @@ def test_list_tests_and_help(capsys):
         assert e.value.code == 0
 
 
+def test_solicited_node_and_dad_matcher():
+    from common import packets as P
+
+    def mod():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "RFC4862", "/root/unit-RFCv6/RFC-4862-conformance.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    assert P.solicited_node("fd:33:33:33::1") == "ff02::1:ff00:1"
+    assert P.solicited_node("2001:db8::abcd") == "ff02::1:ff00:abcd"
+    m = mod()
+    anycast, own = "fd:33:33:33::", "fd:33:33:33::9"
+    ours = P.build_nd("NS", "::", P.solicited_node(anycast), tgt=anycast, hlim=255)
+    dut = P.build_nd("NS", "fe80::1", P.solicited_node(anycast), tgt=anycast, hlim=255)
+    other = P.build_nd("NS", "fe80::1", P.solicited_node("fd:33:33:33::9"),
+                       tgt="fd:33:33:33::9", hlim=255)
+    assert m.dut_dad_probes([ours], anycast, ("::", own)) == []
+    found = m.dut_dad_probes([ours, dut, other], anycast, ("::", own))
+    assert found == [dut]
+
+
 def test_dry_runs_never_transmit(capsys):
     m3 = _load("RFC-4443-conformance")
     m61 = _load("RFC-4861-conformance")

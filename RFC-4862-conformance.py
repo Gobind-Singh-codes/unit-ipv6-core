@@ -100,6 +100,20 @@ def extra_args(p):
     return p
 
 
+def dut_dad_probes(packets, anycast_target: str, own_srcs) -> list:
+    """Packets where the DUT itself performs DAD on the anycast target (pure).
+
+    Excludes our own probes (src :: or our source). A non-empty result is FAIL.
+    """
+    from scapy.layers.inet6 import IPv6, ICMPv6ND_NS
+    own = set(own_srcs)
+    return [p for p in packets
+            if p.haslayer(ICMPv6ND_NS)
+            and p[ICMPv6ND_NS].tgt == anycast_target
+            and p.haslayer(IPv6)
+            and p[IPv6].src not in own]
+
+
 def selected(args) -> list[str]:
     only = set(t.strip() for t in args.tests.split(",") if t.strip())
     if not only:
@@ -120,7 +134,10 @@ def dry_run(args) -> int:
             print("  Expected: DUT receives/processes them (needs --dad-proof or INCONCLUSIVE)")
         elif tid == "SLAAC-02":
             print(f"Test: SLAAC-02  anycast-target={args.anycast_target or '(unset)'}")
-            print("  Expected: no DAD performed on anycast; unproven anycast -> NOT_APPLICABLE/INCONCLUSIVE")
+            print("  Stimulus: control NS for DUT unicast (expects NA), then 3 DAD-style NS "
+                  "for the anycast target (src ::, solicited-node dst)")
+            print("  Expected: DUT emits no DAD probe of its own; a DUT NS for the anycast "
+                  "target is FAIL, silence with control proven is PASS")
         elif tid == "SLAAC-03":
             print("Test: SLAAC-03  NS hlim=254 (invalid) vs control hlim=255 (same wire as ND-04, separate verdict)")
         elif tid == "SLAAC-04a":
@@ -234,9 +251,46 @@ def run_live(args) -> int:
                 r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
                                deviation="anycast unproven (need --anycast-proof); harness will not fabricate it")
             else:
-                r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
-                               deviation="anycast proven but DAD-absence observation is a kink pass (base records only)")
-            rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r)
+                from scapy.layers.inet6 import ICMPv6ND_NS
+                try:
+                    _, got_c = tx_rx(P.build_nd("NS", args.source, args.target, tgt=args.target,
+                                                hlim=255, lladdr=lladdr),
+                                     f"and src host {args.target}", min(3.0, args.observation_timeout))
+                    dad_pkts = []
+                    dad_got_all = []
+                    sn = P.solicited_node(args.anycast_target)
+                    for i in range(3):
+                        stim_d, got_d = tx_rx(P.build_nd("NS", "::", sn, tgt=args.anycast_target,
+                                                         hlim=255, lladdr=lladdr),
+                                              "", 1.0)
+                        dad_pkts.append(stim_d.summary())
+                        dad_got_all += list(got_d)
+                except Exception as e:
+                    r = TestResult(test_id=tid, verdict="ERROR", deviation=str(e))
+                    rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
+                rec["control_na_seen"] = any(p.haslayer(ICMPv6ND_NA) for p in got_c)
+                rec["dad_probes"] = dad_pkts
+                rec["solicited_node"] = sn
+                save(tid, rec, list(got_c) + dad_got_all)
+                dut_dad = dut_dad_probes(dad_got_all, args.anycast_target,
+                                           ("::", args.source))
+                if dut_dad:
+                    r = TestResult(test_id=tid, verdict="FAIL",
+                                   observed=[Observation("DIRECTLY_OBSERVED",
+                                                         f"DUT DAD probe for anycast: {dut_dad[0].summary()}")],
+                                   deviation="DUT performed Duplicate Address Detection on an anycast address")
+                elif rec["control_na_seen"]:
+                    r = TestResult(test_id=tid, verdict="PASS",
+                                   observed=[Observation("INFERRED",
+                                                         "ND path proven by control NA; 3 DAD-style solicitations "
+                                                         "for the anycast target elicited no DUT DAD probe")])
+                else:
+                    r = TestResult(test_id=tid, verdict="INCONCLUSIVE",
+                                   deviation="control NS got no NA; path unproven, absence proves nothing")
+            rec.update(verdict=r.verdict, deviation=r.deviation)
+            observed=[{"kind": o.kind, "detail": o.detail} for o in r.observed]
+            rec["observed"] = observed
+            save(tid, rec, list(got_c) + dad_got_all); results.append(r)
 
         elif tid == "SLAAC-03":
             rec = base_rec(tid, tid)

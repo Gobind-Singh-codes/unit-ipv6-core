@@ -123,10 +123,10 @@ def dry_run(args) -> int:
             print(f"Test: {tid}  Echo to multicast {args.mcast_dst} id={iid} seq={iseq}")
             print("  Expected: any reply src is DUT unicast (never multicast)")
         elif tid == "ICMP-02b":
-            print(f"Test: {tid}  Echo to anycast target={args.anycast_target or '(unset)'}")
+            print(f"Test: {tid}  Echo to anycast target={args.anycast_target or '(unset)'} (L2 to DUT as next hop)")
             print("  Expected: reply src is DUT unicast; needs --anycast-proof or NOT_APPLICABLE/INCONCLUSIVE")
         elif tid == "ICMP-02c":
-            print(f"Test: {tid}  Echo to unmine-unicast target={args.unmine_target or '(unset)'}")
+            print(f"Test: {tid}  Echo to unmine-unicast target={args.unmine_target or '(unset)'} (L2 to DUT as next hop)")
             print("  Expected: reply src is DUT unicast; unset target -> INCONCLUSIVE")
         elif tid == "ICMP-03":
             print(f"Test: {tid}  Unknown informational Type 200, valid IPv6 envelope")
@@ -177,8 +177,12 @@ def run_live(args) -> int:
         return 2
     results: list[TestResult] = []
 
-    def tx_rx(l3, bpf_extra: str, timeout: float):
-        pkt = Ether(src=src_mac, dst=_l2_dst(l3.dst, args.interface)) / l3
+    def tx_rx(l3, bpf_extra: str, timeout: float, via: str | None = None):
+        # via: next-hop for L2 when the IPv6 dst isn't the DUT (anycast target,
+        # unmine-unicast routed via the DUT). No silent fallback: resolution of
+        # the next hop still raises when unknown.
+        l2_ip = via or l3.dst
+        pkt = Ether(src=src_mac, dst=_l2_dst(l2_ip, args.interface)) / l3
         sniffer = AsyncSniffer(iface=args.interface,
                                filter=f"ip6 and dst host {args.source} {bpf_extra}",
                                store=True)
@@ -254,10 +258,13 @@ def run_live(args) -> int:
                 rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
             try:
                 _, got = tx_rx(P.build_echo(args.source, dst, iid, iseq),
-                               "", args.observation_timeout)
+                               "", args.observation_timeout,
+                               via=None if tid == "ICMP-02a" else args.target)
             except Exception as e:
                 r = TestResult(test_id=tid, verdict="ERROR", deviation=str(e))
                 rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
+            if tid == "ICMP-02c":
+                rec["l2_next_hop"] = args.target
             save(tid, rec, got)
             rep = [p for p in got if p.haslayer(ICMPv6EchoReply)
                    and p[ICMPv6EchoReply].id == iid and p[ICMPv6EchoReply].seq == iseq]
@@ -285,10 +292,11 @@ def run_live(args) -> int:
             else:
                 try:
                     _, got = tx_rx(P.build_echo(args.source, args.anycast_target, iid, iseq),
-                                   "", args.observation_timeout)
+                                   "", args.observation_timeout, via=args.target)
                 except Exception as e:
                     r = TestResult(test_id=tid, verdict="ERROR", deviation=str(e))
                     rec.update(verdict=r.verdict, deviation=r.deviation); save(tid, rec, []); results.append(r); continue
+                rec["l2_next_hop"] = args.target
                 save(tid, rec, got)
                 rep = [p for p in got if p.haslayer(ICMPv6EchoReply)
                        and p[ICMPv6EchoReply].id == iid and p[ICMPv6EchoReply].seq == iseq]
