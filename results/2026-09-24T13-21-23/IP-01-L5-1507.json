@@ -1,0 +1,45 @@
+{
+  "chain": [
+    "A",
+    "R",
+    "E",
+    "H",
+    "F"
+  ],
+  "delivery_proof": "auto",
+  "deprecated_stimulus": true,
+  "deviation": "",
+  "dst": "fd:33:33:33::1",
+  "dut_packets": [],
+  "er_requirement": "IPv6 nodes must accept and attempt to process extension headers in any order and occurring any number of times in the same packet.",
+  "er_table": "Table-3",
+  "icmp_id": 57805,
+  "icmp_seq": 35847,
+  "interface": "host0",
+  "interpretation": "Routing Header Type 0 is deprecated per RFC 8200 section 4.4 / RFC 5095; drop or rejection with reason is the required outcome.",
+  "liveness_src": "IP-01-L5-1412",
+  "observability": {
+    "minimum": "blackbox"
+  },
+  "observed": [
+    {
+      "detail": "no reply; delivery proven (TX on wire, DUT alive per IP-01-L5-1412)",
+      "kind": "DIRECTLY_OBSERVED"
+    }
+  ],
+  "pcap": "pcap/IP-01-L5-1507.pcap",
+  "rfc": "8200",
+  "rfc_section": "4.1",
+  "role": "HOST",
+  "src": "fd:33:33:33:7446:4ff:fe34:5702",
+  "stimulus": "Ether / IPv6 / AH / IPv6ExtHdrRouting / ESP / IPv6ExtHdrHopByHop / IPv6ExtHdrFragment / ICMPv6 Echo Request (id: 0xe1cd seq: 0x8c07)",
+  "test_id": "IP-01-L5-1507",
+  "tx_seen_on_wire": true,
+  "tx_time": 1790258427.218938,
+  "verdict": "PASS",
+  "versions": {
+    "platform": "Linux-7.1.3-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "scapy": "2.6.1"
+  }
+}
