@@ -81,6 +81,20 @@ def _load(name):
     return mod
 
 
+def test_fragment_for_wire():
+    m01 = _load("RFC-8201-conformance")
+    from common import packets as P
+    small = P.build_echo("2001:db8::2", "2001:db8::1", 1, 1)
+    assert m01.fragment_for_wire(small, 1500) == [small]
+    big = P.build_echo("2001:db8::2", "2001:db8::1", 1, 1, pad_len=1993)
+    frags = m01.fragment_for_wire(big, 1500)
+    assert len(frags) == 2
+    assert all(len(bytes(f)) <= 1500 for f in frags)
+    from scapy.layers.inet6 import defragment6
+    assert bytes(defragment6(frags)[0]) == bytes(big)
+    assert m01._iface_mtu("lo") >= 1280
+
+
 def test_dry_runs_never_transmit(capsys):
     m3 = _load("RFC-4443-conformance")
     m61 = _load("RFC-4861-conformance")

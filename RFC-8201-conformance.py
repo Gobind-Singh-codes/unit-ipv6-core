@@ -7,6 +7,7 @@ refuses to claim internal cache state. Import-safe: TX only in run_live().
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import time
@@ -46,6 +47,7 @@ def extra_args(p):
 def dry_run(args) -> int:
     print(f"RFC 8201 dry-run  src={args.source} dst={args.target}")
     print(f"Test: PMTU-01  baseline {args.probe_size}B echo exchange (record reply fragment sizes)")
+    print("  Probes larger than the interface MTU are fragmented in userspace before sending")
     print(f"  -> inject PTB src={args.ptb_src or '(path router)'} mtu={args.ptb_mtu} quoting last DUT packet")
     print(f"  -> {args.post_probes} post probes, record fragment sizes")
     print("  Expected: PMTU never reduced below 1280; PTB itself discarded as estimate")
@@ -61,6 +63,29 @@ def _iface_mac(iface: str) -> str:
         if line.strip().startswith("link/"):
             return line.split()[1]
     raise RuntimeError(f"no MAC for {iface}")
+
+
+def _iface_mtu(iface: str) -> int:
+    out = subprocess.check_output(["ip", "-o", "link", "show", "dev", iface], text=True)
+    m = re.search(r"\bmtu (\d+)", out)
+    if not m:
+        raise RuntimeError(f"could not determine MTU for {iface}")
+    return int(m.group(1))
+
+
+def fragment_for_wire(l3, mtu: int):
+    """Split an oversize probe into interface-MTU fragments (pure).
+
+    IPv6 senders fragment themselves; the kernel rejects oversize sendp with
+    EMSGSIZE otherwise. Returns [l3] untouched when it already fits.
+    """
+    from scapy.layers.inet6 import fragment6
+    if len(bytes(l3)) <= mtu:
+        return [l3]
+    fragsize = ((mtu - 48) // 8) * 8  # IPv6 hdr (40) + frag hdr (8), 8-aligned
+    if fragsize < 8:
+        raise ValueError(f"interface MTU {mtu} too small to fragment")
+    return fragment6(l3, fragsize)
 
 
 def run_live(args) -> int:
@@ -83,6 +108,11 @@ def run_live(args) -> int:
         print(f"ERROR: no neighbor entry for {args.target}: {out.stdout.strip()}")
         return 2
     dst_mac = f[f.index("lladdr") + 1]
+    try:
+        iface_mtu = _iface_mtu(args.interface)
+    except Exception as e:
+        print(f"ERROR: {e}")
+        return 2
     ptb_src = args.ptb_src or args.target
     results: list[TestResult] = []
     rec = {"test_id": "PMTU-01", "rfc": RFC, "er_table": "Table-6", "rfc_section": "4",
@@ -90,20 +120,21 @@ def run_live(args) -> int:
            "observability": {"minimum": OBS_MINIMUM},
            "src": args.source, "dst": args.target, "versions": ev.versions(),
            "interface": args.interface, "ptb_mtu": args.ptb_mtu, "ptb_src": ptb_src,
-           "observed_pmtu": args.observed_pmtu}
+           "observed_pmtu": args.observed_pmtu, "iface_mtu": iface_mtu}
 
     def tx_echo(iid: int, iseq: int, timeout: float):
         pad = max(0, args.probe_size - len(b"RFC8200"))
         l3 = P.build_echo(args.source, args.target, iid, iseq, pad_len=pad)
-        pkt = Ether(src=src_mac, dst=dst_mac) / l3
+        frags = fragment_for_wire(l3, iface_mtu)
+        pkts = [Ether(src=src_mac, dst=dst_mac) / f for f in frags]
         sniffer = AsyncSniffer(iface=args.interface,
                                filter=f"ip6 and src host {args.target} and dst host {args.source}",
                                store=True)
         sniffer.start()
         time.sleep(0.1)
-        sendp(pkt, iface=args.interface, count=1, verbose=False)
+        sendp(pkts, iface=args.interface, count=1, verbose=False)
         time.sleep(timeout)
-        return pkt, sniffer.stop()
+        return pkts, len(frags), sniffer.stop()
 
     def echo_replies(got):
         return [p for p in got if p.haslayer(ICMPv6EchoReply)]
@@ -111,14 +142,17 @@ def run_live(args) -> int:
     try:
         # 1. baseline with fragmentation-forcing probes
         base_frags, last_dut_pkt = [], None
+        base_probe_frags = []
         for i in range(2):
             iid, iseq = P.derive_ids(args.seed, f"PMTU-01-base{i}")
-            _, got = tx_echo(iid, iseq, min(4.0, args.observation_timeout))
+            _, nfrags, got = tx_echo(iid, iseq, min(4.0, args.observation_timeout))
+            base_probe_frags.append(nfrags)
             reps = echo_replies(got)
             base_frags += P.first_frag_payloads(reps)
             if reps:
                 last_dut_pkt = reps[-1]
         rec["probe_size"] = args.probe_size
+        rec["baseline_probe_frags"] = base_probe_frags
         rec["baseline_first_frag_payloads"] = base_frags
         if last_dut_pkt is None:
             r = TestResult(test_id="PMTU-01", verdict="INCONCLUSIVE",
@@ -140,12 +174,15 @@ def run_live(args) -> int:
         # 3. post probes: fragment sizes reveal effective path MTU
         post_frags = []
         post_got_all = []
+        post_probe_frags = []
         for i in range(args.post_probes):
             iid, iseq = P.derive_ids(args.seed, f"PMTU-01-post{i}")
-            _, got = tx_echo(iid, iseq, min(4.0, args.observation_timeout))
+            _, nfrags, got = tx_echo(iid, iseq, min(4.0, args.observation_timeout))
+            post_probe_frags.append(nfrags)
             post_got_all += list(got)
             post_frags += P.first_frag_payloads(echo_replies(got))
         inj_got = sniffer.stop()
+        rec["post_probe_frags"] = post_probe_frags
         rec["post_first_frag_payloads"] = post_frags
         try:
             wrpcap(str(run_dir / "pcap" / "PMTU-01.pcap"), list(inj_got) + post_got_all, linktype=1)
